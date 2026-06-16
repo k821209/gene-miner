@@ -134,11 +134,3 @@ fetch their DB on first run.
    (`REPEATMASKER_DIR`), not just the binary on `$PATH`. Long remote jobs need
    `setsid nohup … </dev/null &` (a plain background SSH dies on SIGHUP if the
    connection drops).
-
----
-
-## Provenance
-Extracted from the `comparative-genomics-pipeline` repo (its annotation half),
-itself converted from the lab's Snakemake `stringtie2genemodel` pipeline.
-Hardened on a Korean *Zeugodacus scutellatus* assembly benchmarked against the
-published Chinese reference (Zhang et al. 2026, *Sci Data*, GCA_051201265.1).
