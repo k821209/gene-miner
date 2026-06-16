@@ -1,0 +1,22 @@
+# data / intermediates — pipeline outputs, never commit
+*.fa
+*.fasta
+*.fastq.gz
+*.bam
+*.bam.bai
+*.gff3
+*.gtf
+*.gff
+*.vcf*
+*.bed
+*.tbl
+*.out
+*.emapper.*
+*.log
+annot/
+aug_split/
+aug_out/
+emap_out/
+rm_out/
+ragtag_out/
+db/
