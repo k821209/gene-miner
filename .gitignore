@@ -20,3 +20,6 @@ emap_out/
 rm_out/
 ragtag_out/
 db/
+.nextflow/
+.nextflow.log*
+__pycache__/
