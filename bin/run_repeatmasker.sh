@@ -4,7 +4,7 @@
 # Builds a de-novo RepeatModeler library if one isn't supplied.
 #
 # Usage: bash run_repeatmasker.sh <genome.fa> [repeat_lib.fa] [out_dir=rm_out]
-# Output: <out_dir>/<genome>.out  (feed to te_filter_genes.py)
+# Output: <out_dir>/<genome>.masked (soft) + <out_dir>/<genome>.out
 set -uo pipefail
 
 GENOME=${1:?usage: run_repeatmasker.sh genome.fa [repeat_lib.fa] [out_dir]}
@@ -13,6 +13,8 @@ OUT=${3:-rm_out}
 PA=${PA:-9}                          # x4 threads each = 36
 ENV=${REPEAT_ENV:-aleseq}            # conda env that owns RepeatMasker/RepeatModeler
 mkdir -p "$OUT"
+OUT=$(cd "$OUT" && pwd)              # absolutise so the RepeatModeler subshell cd is safe
+GENOME=$(readlink -f "$GENOME")
 
 # RepeatMasker (conda) needs its env ACTIVATED to set REPEATMASKER_DIR etc.;
 # calling the binary directly fails with "REPEATMASKER_DIR does not exist".
@@ -24,8 +26,12 @@ if [ -z "$LIB" ]; then
   LIB=$OUT/$(basename "$GENOME").repeatlib.fa
   if [ ! -s "$LIB" ]; then
     BuildDatabase -name "$OUT/rmdb" "$GENOME" > "$OUT/builddb.log" 2>&1
-    RepeatModeler -database "$OUT/rmdb" -threads $((PA*4)) > "$OUT/repeatmodeler.log" 2>&1
-    cp "$OUT"/RM_*/consensi.fa.classified "$LIB"
+    # Run inside $OUT so both the RM_* work dir AND rmdb-families.fa land there.
+    ( cd "$OUT" && RepeatModeler -database rmdb -threads $((PA*4)) > repeatmodeler.log 2>&1 )
+    # RepeatModeler 2.x writes <db>-families.fa; 1.x writes RM_*/consensi.fa.classified.
+    SRC=$(ls -t "$OUT"/rmdb-families.fa "$OUT"/RM_*/consensi.fa.classified 2>/dev/null | head -1)
+    { [ -n "$SRC" ] && [ -s "$SRC" ]; } || { echo "ERROR: RepeatModeler produced no library"; exit 1; }
+    cp "$SRC" "$LIB"
   fi
 fi
 # NB: to compare TE content BETWEEN genomes, run RepeatMasker on both with the
@@ -35,5 +41,5 @@ echo "[$(date +%T)] RepeatMasker -lib $(basename "$LIB") on $(basename "$GENOME"
 [ -s "$OUT/$(basename "$GENOME").tbl" ] || \
   RepeatMasker -lib "$LIB" -pa "$PA" -xsmall -gff -dir "$OUT" "$GENOME" > "$OUT/rm.log" 2>&1 || exit 1
 
-echo "[$(date +%T)] DONE -> $OUT/$(basename "$GENOME").out (+ .tbl summary, .out.gff coords)"
+echo "[$(date +%T)] DONE -> $OUT/$(basename "$GENOME").out (+ .masked soft-masked, .tbl summary)"
 sed -n '1,40p' "$OUT/$(basename "$GENOME").tbl"

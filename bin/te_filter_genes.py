@@ -12,7 +12,7 @@ from bisect import bisect_right
 
 rm_out, in_gff, in_pep, out_gff, out_pep = sys.argv[1:6]
 THRESH = float(sys.argv[6]) if len(sys.argv) > 6 else 0.5
-GID = re.compile(r"ZscG_[AR]\d+")
+GID = re.compile(r"[A-Za-z][A-Za-z0-9]*_[AR]\d+")   # any <prefix>_[AR]<digits> gene ID
 SKIP = ("Simple_repeat", "Low_complexity", "Satellite", "Simple", "Low_comp",
         "rRNA", "tRNA", "snRNA", "scRNA", "srpRNA")
 

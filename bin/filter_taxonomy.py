@@ -10,7 +10,7 @@ Usage: filter_taxonomy.py emapper.annotations in.gff3 in.pep.fa out.gff3 out.pep
 import sys, re
 
 ann, in_gff, in_pep, out_gff, out_pep = sys.argv[1:6]
-GID = re.compile(r"ZscG_[AR]\d+")                      # adapt to your gene-ID scheme
+GID = re.compile(r"[A-Za-z][A-Za-z0-9]*_[AR]\d+")     # any <prefix>_[AR]<digits> gene ID
 EUK = {"2759", "33208", "6656", "50557", "7147", "33392", "7214", "7227", "33340"}
 BAC = {"2", "1224", "1236", "91347", "543", "1239", "201174", "976", "1760"}
 
