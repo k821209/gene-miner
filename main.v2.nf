@@ -137,21 +137,37 @@ process AUGUSTUS_PREDICT {
   """
 }
 
+process GENEMARK_ETP {
+  publishDir "${params.outdir}/genemark", mode: "copy"
+  input:
+    path masked
+    path bams
+    path proteome
+  output:
+    path "genemark.gtf", emit: gtf
+  script:
+  """
+  bash ${projectDir}/bin/run_genemark_etp.sh ${masked} ${proteome} ${task.cpus} '${bams}' genemark.gtf
+  """
+}
+
 process BUILD_UNION {
   publishDir "${params.outdir}/union", mode: "copy"
   input:
     path genome
     path aug_gff
     path rna_gff
+    path genemark_gtf
   output:
     path "union.gff3",   emit: gff
     path "union.pep.fa", emit: pep
   script:
+  def gm_arg = genemark_gtf.name == 'NO_GENEMARK' ? '' : "--genemark ${genemark_gtf}"
   """
   export PATH=${params.env_annot}/bin:\$PATH
   [ -e augustus_scaffold.gff3 ] || cp ${aug_gff} augustus_scaffold.gff3
   mkdir -p annot && cp ${rna_gff} annot/genome.transdecoder.gff3
-  python3 ${projectDir}/bin/build_union.py --prefix ${params.gene_prefix} > union_summary.txt 2>&1
+  python3 ${projectDir}/bin/build_union.py --prefix ${params.gene_prefix} ${gm_arg} > union_summary.txt 2>&1
   python3 ${projectDir}/bin/extract_pep.py ${genome} union.gff3 union.pep.fa
   """
 }
@@ -233,7 +249,18 @@ workflow {
   aug_cfg = use_busco ? BUSCO_TRAIN(genome).config : file("${params.env_augustus}/config")
   aug_sp  = use_busco ? 'auto' : params.augustus_species
   AUGUSTUS_PREDICT(MASK_GENOME.out.fasta, aug_cfg, aug_sp)
-  BUILD_UNION(genome, AUGUSTUS_PREDICT.out.gff, TRANSDECODER.out.gff)
+
+  // optional 3rd ab-initio stream: GeneMark-ETP (precomputed gtf, or run in-pipeline)
+  no_gm = file("${projectDir}/assets/NO_GENEMARK")
+  if( params.genemark_gtf ) {
+    gm_ch = Channel.value(file(params.genemark_gtf))
+  } else if( params.run_genemark ) {
+    GENEMARK_ETP(MASK_GENOME.out.fasta, HISAT2_ALIGN.out.bam.collect(), proteome)
+    gm_ch = GENEMARK_ETP.out.gtf
+  } else {
+    gm_ch = Channel.value(no_gm)
+  }
+  BUILD_UNION(genome, AUGUSTUS_PREDICT.out.gff, TRANSDECODER.out.gff, gm_ch)
 
   if( params.run_qc ) {
     EGGNOG(BUILD_UNION.out.pep)
