@@ -19,6 +19,12 @@ BRAKER_ENV=${BRAKER_ENV:-$HOME/miniconda3/envs/braker3}
 GM_PATH=${GENEMARK_PATH:-$HOME/gene-miner-runs/GeneMark-ETP/bin}
 PH_PATH=${PROTHINT_PATH:-$HOME/gene-miner-runs/GeneMark-ETP/bin/gmes/ProtHint/bin}
 
+# BRAKER3 needs its conda env's perl (Scalar::Util::Numeric etc.) + tools on PATH
+source "$(dirname "$(dirname "$BRAKER_ENV")")/etc/profile.d/conda.sh" 2>/dev/null \
+  && conda activate "$BRAKER_ENV" 2>/dev/null || export PATH="$BRAKER_ENV/bin:$PATH"
+# GeneMark-ETP bundles bedtools etc. under its tools/ dir
+export PATH="$(dirname "$GM_PATH")/tools:$PATH"
+
 # GeneMark/BRAKER require single-token FASTA headers; keep soft-masking intact.
 echo "[$(date +%T)] single-token headers -> genome.clean.fa"
 awk '/^>/{print $1; next} {print}' "$MASKED" > genome.clean.fa
@@ -43,6 +49,10 @@ SP="gmetp_$$"
 WD="braker_etp_$$"
 
 echo "[$(date +%T)] BRAKER3 (GeneMark-ETP) on $(echo "$BAMLIST" | tr ',' '\n' | wc -l) BAM(s)"
+GMG="$WD/GeneMark-ETP/genemark.gtf"
+# We only need GeneMark-ETP's output, not BRAKER's downstream AUGUSTUS/TSEBRA
+# (hours of extra work). Run BRAKER in the background and harvest genemark.gtf as
+# soon as it is written and size-stable, then stop BRAKER.
 "$BRAKER_ENV/bin/braker.pl" \
   --genome=genome.clean.fa \
   --bam="$BAMLIST" \
@@ -53,12 +63,26 @@ echo "[$(date +%T)] BRAKER3 (GeneMark-ETP) on $(echo "$BAMLIST" | tr ',' '\n' | 
   --species="$SP" \
   --softmasking \
   --gff3 \
-  --workingdir="$WD" > braker_etp.log 2>&1
-RC=$?
+  --workingdir="$WD" > braker_etp.log 2>&1 &
+BPID=$!
 
-GMG="$WD/GeneMark-ETP/genemark.gtf"
+last=-1
+while kill -0 "$BPID" 2>/dev/null; do
+  if [ -s "$GMG" ]; then
+    sz=$(stat -c%s "$GMG")
+    if [ "$sz" = "$last" ] && [ "$sz" -gt 1000 ]; then
+      echo "[$(date +%T)] GeneMark-ETP output ready; stopping BRAKER (skip AUGUSTUS/TSEBRA)"
+      pkill -P "$BPID" 2>/dev/null; kill "$BPID" 2>/dev/null
+      break
+    fi
+    last=$sz
+  fi
+  sleep 30
+done
+wait "$BPID" 2>/dev/null
+
 if [ ! -s "$GMG" ]; then
-  echo "ERROR: GeneMark-ETP did not produce genemark.gtf (braker rc=$RC); see braker_etp.log" >&2
+  echo "ERROR: GeneMark-ETP did not produce genemark.gtf; see braker_etp.log" >&2
   tail -30 braker_etp.log >&2
   exit 1
 fi
