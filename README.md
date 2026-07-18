@@ -80,6 +80,36 @@ driver is the verified reference implementation and the `.nf` mirrors it.
 The QC runners (`run_eggnog.sh`, `run_repeatmasker.sh`) create their conda env /
 fetch their DB on first run.
 
+### Repeat library: de-novo vs supplied
+
+The TE QC step (stage 6) is driven by RepeatMasker. The `REPEAT_LIB` config
+variable controls where the repeat library comes from:
+
+- **`REPEAT_LIB=` (empty, default)** — build one *de novo* with RepeatModeler
+  (slow, hours). `bin/run_repeatmasker.sh` does this automatically when no
+  library is passed.
+- **`REPEAT_LIB=<lib.fa>`** — reuse an existing/curated library and skip
+  RepeatModeler (fast; also the right choice when comparing TE content
+  *between* genomes, which needs the same `-lib` on both).
+
+TE-derived genes are then flagged purely by **RepeatMasker CDS overlap**
+(`TE_THRESH`, default 0.5 of the CDS in interspersed repeats) — there is no
+Pfam-domain-based TE branch. Pfam (`hmmscan`) is used only in stage 1 to
+*retain* coding ORFs (`TransDecoder --retain_pfam_hits`), not to identify
+repeats.
+
+## Tests
+
+Lightweight smoke tests exercise the union and QC-filter logic on tiny
+synthetic fixtures — **`python3` only**, no external predictors or test-data
+download, under a second to run:
+
+```bash
+python3 -m unittest discover -s test -v     # or: pytest test/
+```
+
+See `test/README.md` for what each test covers.
+
 ---
 
 ## Lessons (read before reusing)
