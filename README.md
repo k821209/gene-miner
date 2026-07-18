@@ -63,15 +63,39 @@ of the RNA-seq models), `bin/union_genes.py` (standalone union utility).
 
 ## Run
 
+**One command, end to end (Nextflow).** `main.nf` runs every stage — masking,
+RNA-seq assembly, ab-initio prediction, GeneMark-ETP, the union, the two QC
+filters and BUSCO — and writes the clean catalogue to `<outdir>/union.final.*`:
+
 ```bash
-# 1. edit the CONFIG block (paths, samples, AUGUSTUS species model, threads)
-# 2. run the whole thing:
+nextflow run main.nf -c nextflow.config \
+  --genome    genome.fa \
+  --reads     'rnaseq/*_{1,2}.fastq.gz' \
+  --proteome  uniprot_sprot.fasta \
+  --augustus_species rice \      # native AUGUSTUS model; omit / 'auto' => BUSCO-train one
+  --repeat_lib repeats.fa \      # supplied library;       omit          => de-novo RepeatModeler
+  --run_genemark true \          # add GeneMark-ETP as a 3rd ab-initio stream
+  --busco_lineage poales_odb10 \
+  --outdir gm_out
+```
+
+The workflow's branch points are parameters (all defaults in `nextflow.config`):
+
+| Choice | Parameter | Options |
+|---|---|---|
+| AUGUSTUS model | `--augustus_species` | a native model name (e.g. `rice`) — or omit / `auto` to **BUSCO-train** one for a new clade |
+| Repeat library | `--repeat_lib` | a supplied `.fa` (fast) — or omit to build one **de novo** with RepeatModeler (slow) |
+| GeneMark-ETP 3rd stream | `--run_genemark` | `true` / `false` (or pass a precomputed `--genemark_gtf`) |
+| QC filters | `--run_qc` | `true` / `false` (stop at the raw union if false) |
+
+**Alternative — the shell driver** (`run_gene_mining.sh`) is the original,
+battle-tested implementation aimed at *messy, contaminated* assemblies (per-contig
+AUGUSTUS + RagTag AGP lift; see Lesson 3). Edit its CONFIG block, then:
+
+```bash
 bash run_gene_mining.sh          # stages 1-7 -> union.final.gff3 / union.final.pep.fa
 # RUN_QC=0 stops at the raw union; REPEAT_LIB=<lib.fa> skips de-novo RepeatModeler
 ```
-
-Or port `main.nf` (Nextflow DSL2 skeleton, stages 1–4) to a cluster — the shell
-driver is the verified reference implementation and the `.nf` mirrors it.
 
 ### Requirements (conda envs)
 - core: `HISAT2, StringTie, TransDecoder, DIAMOND, HMMER(hmmscan), AUGUSTUS (+BUSCO-retrained model), samtools, gffread, miniprot, EvidenceModeler`
