@@ -44,9 +44,9 @@ Databases are fetched on first use, not by this script:
   genomethreader, which bioconda no longer ships). Two working options:
     (a) official BRAKER container (bundles GeneMark-ETP), e.g.
           singularity build braker3.sif docker://teambraker/braker3:latest
-    (b) GeneMark-ETP standalone: a free download (CC BY-NC-SA, academic /
-        non-commercial; no license key), then
-          export GENEMARK_PATH=/path/to/GeneMark-ETP/bin
+    (b) GeneMark-ETP standalone (CC BY-NC-SA, academic/non-commercial; no key):
+          git clone https://github.com/gatech-genemark/GeneMark-ETP
+          export GENEMARK_PATH="$PWD/GeneMark-ETP/bin"
   run_genemark_etp.sh reads GENEMARK_PATH (and BRAKER_ENV for perl deps).
   The two-stream default below needs none of this.
 
