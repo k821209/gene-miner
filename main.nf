@@ -7,6 +7,13 @@
 nextflow.enable.dsl=2
 
 def reqd(v,n){ if(!v) exit 1, "Missing required param --${n}"; return v }
+// Coerce a param to boolean. A CLI flag like `--run_genemark false` arrives as the
+// STRING "false", which is truthy in Groovy — so `if(params.x)` would wrongly fire.
+// Treat only true/1/yes/on (any case) as true; everything else (incl. "false") false.
+def asBool(v){
+  if( v instanceof Boolean ) return v
+  return v?.toString()?.toLowerCase() in ['true','1','yes','on']
+}
 
 process MASK_GENOME {
   tag "RepeatModeler/RepeatMasker"
@@ -113,11 +120,14 @@ process TRANSDECODER {
   """
   UTIL=${params.env_annot}/opt/transdecoder/util
   export PATH=\$UTIL:${params.env_annot}/bin:${params.env_augustus}/bin:\$PATH
+  # Fail loudly on a missing/empty proteome instead of hiding it (a dangling
+  # --proteome symlink used to die inside diamond with the stderr swallowed).
+  [ -s "${proteome}" ] || { echo "ERROR: --proteome '${proteome}' is missing or empty" >&2; exit 1; }
   TransDecoder.LongOrfs -t ${transcripts} > longorfs.log 2>&1
-  diamond makedb --in ${proteome} -d prot -p ${task.cpus} 2>/dev/null
-  diamond blastp -q ${transcripts}.transdecoder_dir/longest_orfs.pep -d prot -p ${task.cpus} -e 1e-5 -k1 --outfmt 6 -o blastp.outfmt6 2>/dev/null
+  diamond makedb --in ${proteome} -d prot -p ${task.cpus} > diamond_makedb.log 2>&1
+  diamond blastp -q ${transcripts}.transdecoder_dir/longest_orfs.pep -d prot -p ${task.cpus} -e 1e-5 -k1 --outfmt 6 -o blastp.outfmt6 > diamond_blastp.log 2>&1
   TransDecoder.Predict -t ${transcripts} --retain_blastp_hits blastp.outfmt6 --single_best_only --cpu ${task.cpus} > predict.log 2>&1
-  \$UTIL/cdna_alignment_orf_to_genome_orf.pl ${transcripts}.transdecoder.gff3 ${aligngff} ${transcripts} > genome.transdecoder.gff3 2>/dev/null || true
+  \$UTIL/cdna_alignment_orf_to_genome_orf.pl ${transcripts}.transdecoder.gff3 ${aligngff} ${transcripts} > genome.transdecoder.gff3 2> cdna_to_genome.log || true
   """
 }
 
@@ -254,7 +264,7 @@ workflow {
   no_gm = file("${projectDir}/assets/NO_GENEMARK")
   if( params.genemark_gtf ) {
     gm_ch = Channel.value(file(params.genemark_gtf))
-  } else if( params.run_genemark ) {
+  } else if( asBool(params.run_genemark) ) {
     GENEMARK_ETP(MASK_GENOME.out.fasta, HISAT2_ALIGN.out.bam.collect(), proteome)
     gm_ch = GENEMARK_ETP.out.gtf
   } else {
@@ -262,7 +272,7 @@ workflow {
   }
   BUILD_UNION(genome, AUGUSTUS_PREDICT.out.gff, TRANSDECODER.out.gff, gm_ch)
 
-  if( params.run_qc ) {
+  if( asBool(params.run_qc) ) {
     EGGNOG(BUILD_UNION.out.pep)
     FILTER_TAXONOMY(EGGNOG.out.ann, BUILD_UNION.out.gff, BUILD_UNION.out.pep)
     TE_FILTER(MASK_GENOME.out.rmout, FILTER_TAXONOMY.out.gff, FILTER_TAXONOMY.out.pep)
