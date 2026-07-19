@@ -18,7 +18,10 @@ GENOME=$(readlink -f "$GENOME")
 
 # RepeatMasker (conda) needs its env ACTIVATED to set REPEATMASKER_DIR etc.;
 # calling the binary directly fails with "REPEATMASKER_DIR does not exist".
-source "$HOME/miniconda3/etc/profile.d/conda.sh"
+# Locate conda.sh portably (do not assume $HOME/miniconda3).
+CONDA_BASE="$(conda info --base 2>/dev/null || echo "$HOME/miniconda3")"
+# shellcheck disable=SC1091
+source "$CONDA_BASE/etc/profile.d/conda.sh"
 conda activate "$ENV"
 
 if [ -z "$LIB" ]; then
