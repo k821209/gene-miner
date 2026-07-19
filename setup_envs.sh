@@ -7,10 +7,9 @@
 # the defaults nextflow.config expects; override the location with
 #   export GM_CONDA_BASE=/path/to/miniconda   (default: $HOME/miniconda3)
 #
-# GeneMark-ETP is bundled with the bioconda `braker3` package and no longer
-# needs a license key. If your braker3 build does not include it, install
-# GeneMark-ETP separately (license-free) and point run_genemark_etp.sh at it via
-#   export GENEMARK_PATH=/path/to/GeneMark-ETP/bin
+# GeneMark-ETP is bundled with the bioconda `braker3` package. If your braker3
+# build does not include it, install GeneMark-ETP separately and point
+# run_genemark_etp.sh at it via  export GENEMARK_PATH=/path/to/GeneMark-ETP/bin
 set -euo pipefail
 
 CH="-c bioconda -c conda-forge"
@@ -25,7 +24,7 @@ create augustus  augustus diamond
 create rmod      repeatmasker repeatmodeler
 create eggnog    eggnog-mapper diamond
 create busco     busco
-create braker3   braker3          # bundles GeneMark-ETP (no license key required)
+create braker3   braker3          # bundles GeneMark-ETP
 # optional: `hmmer` in the annot env enables the Pfam ORF-retention step (--pfam)
 
 cat <<'NOTE'
