@@ -1,5 +1,5 @@
 #!/usr/bin/env nextflow
-// main.v2.nf — working Gene-Miner pipeline (DSL2) for finished chromosome-scale genomes.
+// main.nf — Gene-Miner end-to-end pipeline (DSL2) for finished chromosome-scale genomes.
 // final = usable AUGUSTUS (score>=aug_score, >=aug_min_aa) U RNA-only TransDecoder loci,
 // then QC: eggNOG taxonomy (-non-target) + RepeatMasker overlap (-TE).
 // Tools are supplied per process by prepending the relevant conda env bin to PATH
