@@ -21,6 +21,7 @@ pytest test/
 | `test_build_union.py` | `bin/build_union.py` | usable-AUGUSTUS score/length gates; RNA-only and GeneMark-only loci become their own `_R` / `_E` genes; overlapping RNA/GeneMark transcripts are folded onto the AUGUSTUS locus as extra isoforms; GeneMark `status != complete` transcripts are skipped |
 | `test_te_filter.py` | `bin/te_filter_genes.py` | a gene whose CDS lies inside an interspersed repeat is dropped; a clean gene and a gene overlapping only a *simple* repeat are kept; the CDS-fraction threshold is respected |
 | `test_filter_taxonomy.py` | `bin/filter_taxonomy.py` | a gene with only bacterial-rooted eggNOG orthogroups is dropped; eukaryotic and unassigned genes are kept |
+| `test_lift_agp.py` | `bin/lift_agp.py` | contig→scaffold coordinate lift used by the shell driver: forward contig unchanged, reverse-oriented contig mirrored with a strand flip, contig absent from the AGP dropped, header preserved |
 
 These exercise the decisions that define the final catalogue — the union and
 the two QC filters — not the heavy external predictors.
