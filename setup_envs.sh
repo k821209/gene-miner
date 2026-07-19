@@ -74,7 +74,11 @@ else
   create genemark perl perl-yaml perl-yaml-libyaml perl-parallel-forkmanager \
                   perl-hash-merge perl-mce perl-app-cpanminus perl-list-moreutils \
                   perl-scalar-list-utils python make
-  "$CB/envs/genemark/bin/cpanm" --notest Math::Utils Statistics::LineFit \
+  # Run cpanm with envs/genemark FIRST on PATH: it needs that env's own `make`
+  # (and perl) to build the modules — calling it by absolute path alone leaves
+  # `make` off PATH and the build fails.
+  PATH="$CB/envs/genemark/bin:$PATH" "$CB/envs/genemark/bin/cpanm" \
+    --notest Math::Utils Statistics::LineFit \
     || echo "[setup] WARN: cpanm of Math::Utils/Statistics::LineFit failed — install them by hand into envs/genemark"
   GM_ETP_DIR="${GENEMARK_ETP_DIR:-$CB/opt/GeneMark-ETP}"
   if [ ! -x "$GM_ETP_DIR/bin/gmetp.pl" ]; then

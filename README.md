@@ -63,15 +63,23 @@ of the RNA-seq models), `bin/union_genes.py` (standalone union utility).
 
 ## Setup
 
-Create the conda environments the pipeline uses, in one command (needs conda or
-mamba on PATH):
+**Prerequisites.** `conda`/`mamba`, plus `git` and `curl` on `PATH`; to *run* the
+pipeline you also need `nextflow` and a JDK (Java 11+). On a bare machine these
+install from conda too:
 
 ```bash
-bash setup_envs.sh     # builds: annot, augustus, rmod, eggnog, busco
+conda install -n base -c conda-forge -c bioconda git curl nextflow openjdk
 ```
 
-This covers the default **two-stream** run (AUGUSTUS + RNA-seq + QC), which is
-fully reproducible from conda alone.
+Then create the conda environments the pipeline uses, in one command:
+
+```bash
+bash setup_envs.sh     # builds: annot, augustus, rmod, eggnog, busco, genemark
+```
+
+The first five environments cover the default **two-stream** run (AUGUSTUS +
+RNA-seq + QC), which is fully reproducible from conda alone; the sixth
+(`genemark`) plus a GeneMark-ETP clone add the optional third stream (below).
 
 The optional **3rd stream, GeneMark-ETP** (`--run_genemark true`; the paper's
 headline three-stream configuration) is **conda-only as well — no BRAKER, no
