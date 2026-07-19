@@ -9,12 +9,10 @@
 #
 # This installs the five conda envs the pipeline needs for its default two-stream
 # run (AUGUSTUS + RNA-seq + QC), plus a sixth `genemark` env and a GeneMark-ETP
-# checkout for the optional 3rd stream (--run_genemark). GeneMark-ETP is driven
-# directly through its own `gmetp.pl` (NOT through BRAKER): it bundles GeneMark +
-# ProtHint and ships static binaries of every third-party tool it needs
-# (bedtools, samtools, hisat2, diamond, stringtie, gffread), so it needs NO
-# GenomeThreader and NO container — only Perl (a few CPAN modules) + python3.
-# Skip the 3rd-stream step with:  GM_SKIP_GENEMARK=1 bash setup_envs.sh
+# checkout for the optional 3rd stream (--run_genemark). That stream runs through
+# GeneMark-ETP's own `gmetp.pl`, which bundles GeneMark + ProtHint and static
+# builds of its third-party tools, so it needs only Perl (a few CPAN modules) +
+# python3 from conda. Skip it with:  GM_SKIP_GENEMARK=1 bash setup_envs.sh
 set -euo pipefail
 
 CH="-c bioconda -c conda-forge"
@@ -57,12 +55,12 @@ if [ -n "$CONF" ]; then
   fi
 fi
 
-# --- 3rd stream: GeneMark-ETP (conda-only, no BRAKER, no GenomeThreader) ---
+# --- 3rd stream: GeneMark-ETP ---
 # GeneMark-ETP's gmetp.pl bundles GeneMark + ProtHint and its own static
 # bedtools/samtools/hisat2/diamond/stringtie/gffread under tools/, so the only
 # external needs are Perl (+ a few CPAN modules) and python3. We create a
 # `genemark` env for those and clone the GeneMark-ETP repo next to the envs.
-# GeneMark-ETP is CC BY-NC-SA (academic / non-commercial; no licence key).
+# GeneMark-ETP is CC BY-NC-SA (academic / non-commercial).
 if [ "${GM_SKIP_GENEMARK:-0}" = "1" ]; then
   echo "[setup] GM_SKIP_GENEMARK=1 -> skipping the GeneMark-ETP 3rd stream"
 else
@@ -102,11 +100,10 @@ Databases are fetched on first use, not by this script:
 3rd stream — GeneMark-ETP (only if you pass --run_genemark true):
   Installed above unless GM_SKIP_GENEMARK=1: the `genemark` conda env (Perl +
   the required CPAN modules + python3) and a GeneMark-ETP checkout in
-  <conda_base>/opt/GeneMark-ETP. run_genemark_etp.sh calls GeneMark-ETP's own
-  gmetp.pl directly — NO BRAKER, NO GenomeThreader, NO container (GeneMark-ETP
-  bundles GeneMark + ProtHint + static bedtools/samtools/hisat2/diamond/
-  stringtie). Override the checkout location with GENEMARK_ETP_DIR. GeneMark-ETP
-  is academic / non-commercial (CC BY-NC-SA; no licence key needed).
+  <conda_base>/opt/GeneMark-ETP. run_genemark_etp.sh runs GeneMark-ETP's own
+  gmetp.pl, which bundles GeneMark + ProtHint + static bedtools/samtools/hisat2/
+  diamond/stringtie. Override the checkout location with GENEMARK_ETP_DIR.
+  GeneMark-ETP is academic / non-commercial (CC BY-NC-SA).
 
 To run the bin/ scripts by hand (main.nf does this for you), prepend the tool's
 env to PATH, e.g.  export PATH=$GM_CONDA_BASE/envs/annot/bin:$PATH

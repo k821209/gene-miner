@@ -3,14 +3,13 @@
 # stream for build_union.py --genemark) from the pipeline's own inputs: the
 # soft-masked genome, the HISAT2 BAMs, and the protein evidence.
 #
-# GeneMark-ETP is driven DIRECTLY through its native entry point `gmetp.pl`
-# (github.com/gatech-genemark/GeneMark-ETP) — NOT through BRAKER. GeneMark-ETP
-# bundles GeneMark-ES/ET/EP+ and ProtHint, and ships static binaries of every
+# GeneMark-ETP runs through its native entry point `gmetp.pl`
+# (github.com/gatech-genemark/GeneMark-ETP). GeneMark-ETP bundles
+# GeneMark-ES/ET/EP+ and ProtHint, and ships static binaries of every
 # third-party tool it needs (bedtools, samtools, hisat2, diamond, stringtie,
-# gffread) under its own tools/ folder. It does NOT use GenomeThreader. So the
-# only external dependencies are Perl (with a handful of CPAN modules) and
-# python3, both installed by setup_envs.sh into the `genemark` conda env. There
-# is no BRAKER container and no genomethreader in this path.
+# gffread) under its own tools/ folder, so the only external dependencies are
+# Perl (with a handful of CPAN modules) and python3, both installed by
+# setup_envs.sh into the `genemark` conda env.
 #
 # gmetp.pl consumes a small YAML config (this script writes it) plus a directory
 # of coordinate-sorted BAMs named sorted_1.bam..sorted_N.bam (passed with --bam,

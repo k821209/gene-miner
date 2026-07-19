@@ -82,15 +82,12 @@ RNA-seq + QC), which is fully reproducible from conda alone; the sixth
 (`genemark`) plus a GeneMark-ETP clone add the optional third stream (below).
 
 The optional **3rd stream, GeneMark-ETP** (`--run_genemark true`; the paper's
-headline three-stream configuration) is **conda-only as well — no BRAKER, no
-GenomeThreader, no container.** `setup_envs.sh` builds a sixth `genemark` env
-(Perl + the required CPAN modules + python3) and clones GeneMark-ETP into
-`<conda_base>/opt/GeneMark-ETP`. `run_genemark_etp.sh` then calls GeneMark-ETP's
-own `gmetp.pl` directly — GeneMark-ETP bundles GeneMark-ES/ET/EP+, GeneMarkS-T
-and ProtHint, and ships static binaries of every third-party tool it needs
-(bedtools, samtools, hisat2, diamond, stringtie, gffread), so nothing else is
-required. (Driving it through `braker.pl` is what used to pull in GenomeThreader;
-calling `gmetp.pl` directly avoids that entirely.)
+headline three-stream configuration) installs the same way. `setup_envs.sh`
+builds a sixth `genemark` env (Perl + the required CPAN modules + python3) and
+clones GeneMark-ETP into `<conda_base>/opt/GeneMark-ETP`. `run_genemark_etp.sh`
+calls GeneMark-ETP's own `gmetp.pl`, which bundles GeneMark-ES/ET/EP+,
+GeneMarkS-T and ProtHint together with static builds of the third-party tools it
+needs (bedtools, samtools, hisat2, diamond, stringtie, gffread).
 
 ```bash
 bash setup_envs.sh                       # includes the genemark env + repo clone
@@ -99,9 +96,9 @@ export GENEMARK_ETP_DIR=/path/to/GeneMark-ETP   # optional: custom checkout loca
 ```
 
 GeneMark-ETP (<https://github.com/gatech-genemark/GeneMark-ETP>) is CC BY-NC-SA
-(academic / non-commercial; no license key needed). Validated end-to-end on rice
-from a clean conda install: **41,534 genes, poales BUSCO 96.5%**, reproducing the
-paper's three-stream headline.
+(academic / non-commercial). Validated end-to-end on rice from a clean conda
+install: **41,534 genes, poales BUSCO 96.5%**, reproducing the paper's
+three-stream headline.
 
 **External databases** (not installed by conda; stage these before a full run):
 
