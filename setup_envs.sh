@@ -34,19 +34,23 @@ create busco     busco
 # Fetch the small Dfam root partition (~60 MB) and point famdb.conf at it. The
 # FamDB format must match the RepeatMasker version (Dfam 4.0 = famdb 3.x = RM 4.2.x).
 echo "[setup] configuring RepeatMasker Dfam library (~60 MB download)"
-CB="$("$SOLVER" info --base 2>/dev/null || echo "$HOME/miniconda3")"
+# NB: use `conda info --base` (clean path); `mamba info --base` prints a labelled line.
+CB="$(conda info --base 2>/dev/null || true)"; [ -n "$CB" ] || CB="$HOME/miniconda3"
 FAMDIR="$CB/envs/rmod/share/RepeatMasker/Libraries/famdb"
-CONF="$(ls "$CB"/envs/rmod/share/famdb-*/famdb.conf 2>/dev/null | head -1)"
 mkdir -p "$FAMDIR"
 if ! ls "$FAMDIR"/*.h5 >/dev/null 2>&1; then
-  ( cd "$FAMDIR" && curl -fsSL -o dfam40.0.h5.gz \
-      https://www.dfam.org/releases/current/families/FamDB/dfam40.0.h5.gz \
-    && gunzip -f dfam40.0.h5.gz ) || echo "[setup] WARN: Dfam download failed — fetch it manually"
+  ( cd "$FAMDIR" \
+    && curl -fSL -o dfam40.0.h5.gz https://www.dfam.org/releases/current/families/FamDB/dfam40.0.h5.gz \
+    && gunzip -f dfam40.0.h5.gz ) \
+    || echo "[setup] WARN: Dfam download failed — fetch dfam40.0.h5 into $FAMDIR manually"
 fi
+CONF="$(ls "$CB"/envs/rmod/share/famdb-*/famdb.conf 2>/dev/null | head -1 || true)"
 if [ -n "$CONF" ]; then
-  grep -q '^FAMDB_DATA_DIR' "$CONF" \
-    && sed -i "s|^FAMDB_DATA_DIR.*|FAMDB_DATA_DIR = $FAMDIR|" "$CONF" \
-    || echo "FAMDB_DATA_DIR = $FAMDIR" >> "$CONF"
+  if grep -q '^FAMDB_DATA_DIR' "$CONF"; then
+    sed -i "s|^FAMDB_DATA_DIR.*|FAMDB_DATA_DIR = $FAMDIR|" "$CONF"
+  else
+    printf 'FAMDB_DATA_DIR = %s\n' "$FAMDIR" >> "$CONF"
+  fi
 fi
 
 cat <<'NOTE'
