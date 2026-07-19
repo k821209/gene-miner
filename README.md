@@ -98,7 +98,10 @@ satisfy `run_genemark_etp.sh`, which invokes `braker.pl`.)
   until it is configured. Download a Dfam FamDB partition (the small
   `dfamNN_full.0.h5` is enough) from <https://www.dfam.org/releases/current/families/FamDB/>
   into the `rmod` env's `share/RepeatMasker/Libraries/famdb/`, or set
-  `FAMDB_DATA_DIR`. Dfam release page: <https://www.dfam.org/releases/>.
+  `FAMDB_DATA_DIR`. Dfam release page: <https://www.dfam.org/releases/>. The
+  FamDB **format must match the RepeatMasker version** (RepeatMasker 4.2.4 uses
+  famdb 3.x and rejects an older 2.x `.h5` with "cannot be read by this version
+  of famdb.py") — so pin `repeatmasker` (see below) and fetch the matching Dfam.
 - **eggNOG-mapper DB (~50 GB).** `run_eggnog.sh` downloads it on first run
   (from <http://eggnog6.embl.de/download/>), or run `download_eggnog_data.py`, or
   set `$EGGNOG_DB` to an existing copy.
