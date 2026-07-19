@@ -23,5 +23,12 @@ pytest test/
 | `test_filter_taxonomy.py` | `bin/filter_taxonomy.py` | a gene with only bacterial-rooted eggNOG orthogroups is dropped; eukaryotic and unassigned genes are kept |
 
 These exercise the decisions that define the final catalogue — the union and
-the two QC filters — not the heavy external predictors, which are integration
-concerns covered by a full pipeline run (see the top-level `README.md`).
+the two QC filters — not the heavy external predictors.
+
+## Full pipeline reproduction (rice)
+
+For an end-to-end check on real data — a one-command Nextflow run that
+reproduces the paper's rice catalogue (~41.5 k genes, ~96.5 % all-isoform BUSCO,
+~6 h) — see [`reproduce_rice.md`](reproduce_rice.md). It lists the public inputs
+(IRGSP-1.0 genome + four SRA libraries + Swiss-Prot) and the exact `-profile rice`
+invocation.
