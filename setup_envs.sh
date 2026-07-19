@@ -7,9 +7,11 @@
 # the defaults nextflow.config expects; override the location with
 #   export GM_CONDA_BASE=/path/to/miniconda   (default: $HOME/miniconda3)
 #
-# GeneMark-ETP is bundled with the bioconda `braker3` package. If your braker3
-# build does not include it, install GeneMark-ETP separately and point
-# run_genemark_etp.sh at it via  export GENEMARK_PATH=/path/to/GeneMark-ETP/bin
+# This installs the five conda envs the pipeline needs for its default two-stream
+# run (AUGUSTUS + RNA-seq + QC). The optional 3rd stream (GeneMark-ETP, enabled
+# with --run_genemark) is NOT conda-installable on a clean machine: the bioconda
+# `braker3` recipe requires genomethreader, which bioconda no longer ships. Use
+# the official BRAKER container instead — see the note printed at the end.
 set -euo pipefail
 
 CH="-c bioconda -c conda-forge"
@@ -24,12 +26,11 @@ create augustus  augustus diamond
 create rmod      repeatmasker repeatmodeler
 create eggnog    eggnog-mapper diamond
 create busco     busco
-create braker3   braker3          # bundles GeneMark-ETP
 # optional: `hmmer` in the annot env enables the Pfam ORF-retention step (--pfam)
 
 cat <<'NOTE'
 
-[setup] conda environments ready.
+[setup] five conda environments ready (annot, augustus, rmod, eggnog, busco).
 
 Databases are fetched on first use, not by this script:
   - eggNOG DB    : run_eggnog.sh downloads it on first run (or set $EGGNOG_DB to an
@@ -38,10 +39,19 @@ Databases are fetched on first use, not by this script:
                    `busco --download <lineage_odb10>`.
   - Pfam (opt.)  : download Pfam-A.hmm and `hmmpress` it; pass --pfam to use it.
 
-nextflow.config resolves the env prefixes from $HOME/miniconda3/envs by default
-(override with GM_CONDA_BASE). You are ready to run, e.g.:
+3rd stream — GeneMark-ETP (only if you pass --run_genemark true):
+  bioconda `braker3` is NOT installable on a clean machine (it needs
+  genomethreader, which bioconda no longer ships). Use the official BRAKER
+  container, which bundles GeneMark-ETP, e.g.:
+     singularity build braker3.sif docker://teambraker/braker3:latest
+  then point run_genemark_etp.sh at it (BRAKER_ENV / GENEMARK_PATH), or run
+  GeneMark-ETP standalone. The two-stream default below needs none of this.
 
-  nextflow run main.nf -c nextflow.config -profile rice \
+nextflow.config resolves the env prefixes from $HOME/miniconda3/envs by default
+(override with GM_CONDA_BASE). Two-stream run (works with the five envs above):
+
+  nextflow run main.nf -c nextflow.config \
     --genome genome.fa --reads 'rnaseq/*_{1,2}.fastq.gz' \
-    --proteome db/uniprot_sprot.fasta --outdir gm_out
+    --proteome db/uniprot_sprot.fasta --augustus_species rice \
+    --busco_lineage poales_odb10 --outdir gm_out
 NOTE

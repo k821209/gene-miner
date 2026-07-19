@@ -67,13 +67,19 @@ Create the conda environments the pipeline uses, in one command (needs conda or
 mamba on PATH):
 
 ```bash
-bash setup_envs.sh     # builds: annot, augustus, rmod, eggnog, busco, braker3
+bash setup_envs.sh     # builds: annot, augustus, rmod, eggnog, busco
 ```
 
-GeneMark-ETP is bundled with the bioconda `braker3` package. Databases (eggNOG
-~50 GB, BUSCO lineage, optional Pfam) are
-fetched on first use — see the notes `setup_envs.sh` prints. The pipeline finds
-the envs under `$HOME/miniconda3/envs` by default; point elsewhere with
+This covers the default **two-stream** run (AUGUSTUS + RNA-seq + QC). The
+optional **3rd stream, GeneMark-ETP** (`--run_genemark true`) is *not*
+conda-installable on a clean machine — the bioconda `braker3` recipe requires
+`genomethreader`, which bioconda no longer ships. For it, use the official
+BRAKER container (`docker://teambraker/braker3`, which bundles GeneMark-ETP) and
+point `run_genemark_etp.sh` at it, or run GeneMark-ETP standalone.
+
+Databases (eggNOG ~50 GB, BUSCO lineage, optional Pfam) are fetched on first use
+— see the notes `setup_envs.sh` prints. The pipeline finds the envs under
+`$HOME/miniconda3/envs` by default; point elsewhere with
 `export GM_CONDA_BASE=/path/to/miniconda`.
 
 ## Run
