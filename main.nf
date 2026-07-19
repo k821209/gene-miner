@@ -157,6 +157,10 @@ process GENEMARK_ETP {
     path "genemark.gtf", emit: gtf
   script:
   """
+  # perl (+CPAN) and python3 for gmetp.pl come from the `genemark` conda env;
+  # GeneMark-ETP itself (bundled tools + ProtHint) lives in genemark_etp_dir.
+  export PATH=${params.env_genemark}/bin:\$PATH
+  export GENEMARK_ETP_DIR=${params.genemark_etp_dir}
   bash ${projectDir}/bin/run_genemark_etp.sh ${masked} ${proteome} ${task.cpus} '${bams}' genemark.gtf
   """
 }

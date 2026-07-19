@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
 # run_genemark_etp.sh — produce GeneMark-ETP predictions (the 3rd ab-initio
 # stream for build_union.py --genemark) from the pipeline's own inputs: the
-# soft-masked genome, the HISAT2 BAMs, and the protein evidence. GeneMark-ETP is
-# driven through BRAKER3 (which wraps GeneMark-ETP + ProtHint); only its
-# GeneMark-ETP output (genemark.gtf) is exported — AUGUSTUS/TSEBRA steps are a
-# by-product. Speed is not the point here: maximal de-novo gene recall is.
+# soft-masked genome, the HISAT2 BAMs, and the protein evidence.
+#
+# GeneMark-ETP is driven DIRECTLY through its native entry point `gmetp.pl`
+# (github.com/gatech-genemark/GeneMark-ETP) — NOT through BRAKER. GeneMark-ETP
+# bundles GeneMark-ES/ET/EP+ and ProtHint, and ships static binaries of every
+# third-party tool it needs (bedtools, samtools, hisat2, diamond, stringtie,
+# gffread) under its own tools/ folder. It does NOT use GenomeThreader. So the
+# only external dependencies are Perl (with a handful of CPAN modules) and
+# python3, both installed by setup_envs.sh into the `genemark` conda env. There
+# is no BRAKER container and no genomethreader in this path.
+#
+# gmetp.pl consumes a small YAML config (this script writes it) plus a directory
+# of coordinate-sorted BAMs named sorted_1.bam..sorted_N.bam (passed with --bam,
+# so no re-alignment) and produces <workdir>/genemark.gtf.
 #
 # Usage: run_genemark_etp.sh <masked_genome.fa> <proteins.fa> <cpus> "<bam1 bam2 ...>" <out.gtf>
 set -uo pipefail
@@ -15,75 +25,78 @@ CPUS=${3:?cpus}
 BAMS_RAW=${4:?space-separated bams}
 OUT=${5:-genemark.gtf}
 
-BRAKER_ENV=${BRAKER_ENV:-$HOME/miniconda3/envs/braker3}
-GM_PATH=${GENEMARK_PATH:-$HOME/gene-miner-runs/GeneMark-ETP/bin}
-PH_PATH=${PROTHINT_PATH:-$HOME/gene-miner-runs/GeneMark-ETP/bin/gmes/ProtHint/bin}
+# GeneMark-ETP git checkout (cloned by setup_envs.sh). tools/ holds the bundled
+# static third-party binaries; bin/ holds gmetp.pl + GeneMark + ProtHint.
+GM_ETP=${GENEMARK_ETP_DIR:-$HOME/GeneMark-ETP}
+[ -x "$GM_ETP/bin/gmetp.pl" ] || {
+  echo "ERROR: GeneMark-ETP not found at '$GM_ETP' (bin/gmetp.pl missing)." >&2
+  echo "       Set GENEMARK_ETP_DIR, or run setup_envs.sh which clones it." >&2
+  exit 1; }
 
-# BRAKER3 needs its conda env's perl (Scalar::Util::Numeric etc.) + tools on PATH
-source "$(dirname "$(dirname "$BRAKER_ENV")")/etc/profile.d/conda.sh" 2>/dev/null \
-  && conda activate "$BRAKER_ENV" 2>/dev/null || export PATH="$BRAKER_ENV/bin:$PATH"
-# GeneMark-ETP bundles bedtools etc. under its tools/ dir
-export PATH="$(dirname "$GM_PATH")/tools:$PATH"
+# Perl (+CPAN modules) and python3 come from the 'genemark' conda env if the
+# caller put it on PATH (main.nf does). The bundled tools/ must come FIRST so
+# gmetp.pl uses GeneMark-ETP's own static bedtools/samtools/hisat2/diamond.
+export PATH="$GM_ETP/tools:$GM_ETP/bin:$PATH"
 
-# GeneMark/BRAKER require single-token FASTA headers; keep soft-masking intact.
+command -v perl >/dev/null   || { echo "ERROR: perl not found (genemark conda env not on PATH)" >&2; exit 1; }
+command -v python3 >/dev/null || { echo "ERROR: python3 not found (genemark conda env not on PATH)" >&2; exit 1; }
+[ -s "$PROT" ] || { echo "ERROR: protein DB '$PROT' is missing or empty" >&2; exit 1; }
+SAMTOOLS="$GM_ETP/tools/samtools"
+
+# GeneMark requires single-token FASTA headers; keep soft-masking (lower-case)
+# intact — do NOT upper-case, gmetp.pl is invoked with --softmask below.
 echo "[$(date +%T)] single-token headers -> genome.clean.fa"
 awk '/^>/{print $1; next} {print}' "$MASKED" > genome.clean.fa
+GENOME=$(readlink -f genome.clean.fa)
+PROTABS=$(readlink -f "$PROT")
 
-# coordinate-sort BAMs (GeneMark-ETP re-sorts, but provide tidy inputs); comma-join
-ST="$BRAKER_ENV/bin/samtools"
-BAMLIST=""
-i=0
+# Coordinate-sort the BAMs into bams/sorted_1.bam..N (gmetp.pl --bam symlinks
+# <dir>/<set>.bam and skips its own alignment step).
+mkdir -p bams
+i=0; SETS=""
 for b in $BAMS_RAW; do
-  i=$((i+1))
-  sb="sorted_${i}.bam"
-  if "$ST" view -H "$b" 2>/dev/null | grep -q 'SO:coordinate'; then
+  i=$((i+1)); sb="bams/sorted_${i}.bam"
+  if "$SAMTOOLS" view -H "$b" 2>/dev/null | grep -q 'SO:coordinate'; then
     cp "$b" "$sb"
   else
-    "$ST" sort -@ "$CPUS" -o "$sb" "$b"
+    "$SAMTOOLS" sort -@ "$CPUS" -o "$sb" "$b"
   fi
-  BAMLIST="${BAMLIST:+$BAMLIST,}$sb"
+  SETS="${SETS:+$SETS,}sorted_${i}"
 done
+BAMDIR=$(readlink -f bams)
+[ -n "$SETS" ] || { echo "ERROR: no BAM files supplied" >&2; exit 1; }
 
-# unique species tag (avoid AUGUSTUS species-dir clashes); $$ = PID, no clock needed
+# unique species tag (avoids model-dir clashes); $$ = PID, no clock needed
 SP="gmetp_$$"
-WD="braker_etp_$$"
+WD=$(readlink -f "etp_$$"); mkdir -p "$WD"
 
-echo "[$(date +%T)] BRAKER3 (GeneMark-ETP) on $(echo "$BAMLIST" | tr ',' '\n' | wc -l) BAM(s)"
-GMG="$WD/GeneMark-ETP/genemark.gtf"
-# We only need GeneMark-ETP's output, not BRAKER's downstream AUGUSTUS/TSEBRA
-# (hours of extra work). Run BRAKER in the background and harvest genemark.gtf as
-# soon as it is written and size-stable, then stop BRAKER.
-"$BRAKER_ENV/bin/braker.pl" \
-  --genome=genome.clean.fa \
-  --bam="$BAMLIST" \
-  --prot_seq="$PROT" \
-  --GENEMARK_PATH="$GM_PATH" \
-  --PROTHINT_PATH="$PH_PATH" \
-  --threads="$CPUS" \
-  --species="$SP" \
-  --softmasking \
-  --gff3 \
-  --workingdir="$WD" > braker_etp.log 2>&1 &
-BPID=$!
+# The native GeneMark-ETP YAML config (this is exactly what BRAKER used to
+# generate and hand to gmetp.pl). RepeatMasker_path/annot_path stay empty:
+# the genome is already masked (--softmask) and we have no reference annotation.
+cat > "$WD/etp_config.yaml" <<EOF
+---
+RepeatMasker_path: ''
+annot_path: ''
+genome_path: $GENOME
+protdb_path: $PROTABS
+rnaseq_sets: [$SETS]
+species: $SP
+EOF
 
-last=-1
-while kill -0 "$BPID" 2>/dev/null; do
-  if [ -s "$GMG" ]; then
-    sz=$(stat -c%s "$GMG")
-    if [ "$sz" = "$last" ] && [ "$sz" -gt 1000 ]; then
-      echo "[$(date +%T)] GeneMark-ETP output ready; stopping BRAKER (skip AUGUSTUS/TSEBRA)"
-      pkill -P "$BPID" 2>/dev/null; kill "$BPID" 2>/dev/null
-      break
-    fi
-    last=$sz
-  fi
-  sleep 30
-done
-wait "$BPID" 2>/dev/null
+echo "[$(date +%T)] gmetp.pl on $i BAM(s), $CPUS cores (softmask, pre-aligned BAMs)"
+perl "$GM_ETP/bin/gmetp.pl" \
+  --cfg "$WD/etp_config.yaml" \
+  --workdir "$WD" \
+  --cores "$CPUS" \
+  --softmask \
+  --bam "$BAMDIR" \
+  --verbose > gmetp.log 2>&1
+GM_RC=$?
 
+GMG="$WD/genemark.gtf"
 if [ ! -s "$GMG" ]; then
-  echo "ERROR: GeneMark-ETP did not produce genemark.gtf; see braker_etp.log" >&2
-  tail -30 braker_etp.log >&2
+  echo "ERROR: gmetp.pl (rc=$GM_RC) did not produce genemark.gtf; see gmetp.log" >&2
+  tail -40 gmetp.log >&2
   exit 1
 fi
 cp "$GMG" "$OUT"

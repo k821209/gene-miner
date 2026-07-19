@@ -8,10 +8,13 @@
 #   export GM_CONDA_BASE=/path/to/miniconda   (default: $HOME/miniconda3)
 #
 # This installs the five conda envs the pipeline needs for its default two-stream
-# run (AUGUSTUS + RNA-seq + QC). The optional 3rd stream (GeneMark-ETP, enabled
-# with --run_genemark) is NOT conda-installable on a clean machine: the bioconda
-# `braker3` recipe requires genomethreader, which bioconda no longer ships. Use
-# the official BRAKER container instead — see the note printed at the end.
+# run (AUGUSTUS + RNA-seq + QC), plus a sixth `genemark` env and a GeneMark-ETP
+# checkout for the optional 3rd stream (--run_genemark). GeneMark-ETP is driven
+# directly through its own `gmetp.pl` (NOT through BRAKER): it bundles GeneMark +
+# ProtHint and ships static binaries of every third-party tool it needs
+# (bedtools, samtools, hisat2, diamond, stringtie, gffread), so it needs NO
+# GenomeThreader and NO container — only Perl (a few CPAN modules) + python3.
+# Skip the 3rd-stream step with:  GM_SKIP_GENEMARK=1 bash setup_envs.sh
 set -euo pipefail
 
 CH="-c bioconda -c conda-forge"
@@ -54,6 +57,33 @@ if [ -n "$CONF" ]; then
   fi
 fi
 
+# --- 3rd stream: GeneMark-ETP (conda-only, no BRAKER, no GenomeThreader) ---
+# GeneMark-ETP's gmetp.pl bundles GeneMark + ProtHint and its own static
+# bedtools/samtools/hisat2/diamond/stringtie/gffread under tools/, so the only
+# external needs are Perl (+ a few CPAN modules) and python3. We create a
+# `genemark` env for those and clone the GeneMark-ETP repo next to the envs.
+# GeneMark-ETP is CC BY-NC-SA (academic / non-commercial; no licence key).
+if [ "${GM_SKIP_GENEMARK:-0}" = "1" ]; then
+  echo "[setup] GM_SKIP_GENEMARK=1 -> skipping the GeneMark-ETP 3rd stream"
+else
+  echo "[setup] setting up the GeneMark-ETP 3rd stream (env 'genemark' + repo clone)"
+  # perl-app-cpanminus + make let us add the two CPAN modules bioconda lacks
+  # (Statistics::LineFit, Math::Utils); the rest come from conda.
+  # perl-yaml (YAML.pm) AND perl-yaml-libyaml (YAML::XS.pm) are both needed —
+  # gmetp.pl uses YAML::XS, ProtHint's proteins_from_gtf.pl uses plain YAML.
+  create genemark perl perl-yaml perl-yaml-libyaml perl-parallel-forkmanager \
+                  perl-hash-merge perl-mce perl-app-cpanminus perl-list-moreutils \
+                  perl-scalar-list-utils python make
+  "$CB/envs/genemark/bin/cpanm" --notest Math::Utils Statistics::LineFit \
+    || echo "[setup] WARN: cpanm of Math::Utils/Statistics::LineFit failed — install them by hand into envs/genemark"
+  GM_ETP_DIR="${GENEMARK_ETP_DIR:-$CB/opt/GeneMark-ETP}"
+  if [ ! -x "$GM_ETP_DIR/bin/gmetp.pl" ]; then
+    mkdir -p "$(dirname "$GM_ETP_DIR")"
+    git clone --depth 1 https://github.com/gatech-genemark/GeneMark-ETP "$GM_ETP_DIR" \
+      || echo "[setup] WARN: git clone of GeneMark-ETP failed — clone it into $GM_ETP_DIR by hand"
+  fi
+fi
+
 cat <<'NOTE'
 
 [setup] five conda environments ready (annot, augustus, rmod, eggnog, busco).
@@ -66,15 +96,13 @@ Databases are fetched on first use, not by this script:
   - Pfam (opt.)  : download Pfam-A.hmm and `hmmpress` it; pass --pfam to use it.
 
 3rd stream — GeneMark-ETP (only if you pass --run_genemark true):
-  run_genemark_etp.sh drives GeneMark-ETP through braker.pl, which also needs
-  GenomeThreader + several Perl modules. This stack is NOT conda-installable on
-  a clean machine (bioconda `braker3` requires genomethreader, no longer
-  shipped). Use the official BRAKER container, which bundles braker.pl +
-  GeneMark-ETP + GenomeThreader + the Perl deps:
-        singularity build braker3.sif docker://teambraker/braker3:latest
-  then point run_genemark_etp.sh at it (BRAKER_ENV / GENEMARK_PATH). Cloning
-  GeneMark-ETP alone (github.com/gatech-genemark/GeneMark-ETP) does not suffice.
-  The two-stream default below needs none of this.
+  Installed above unless GM_SKIP_GENEMARK=1: the `genemark` conda env (Perl +
+  the required CPAN modules + python3) and a GeneMark-ETP checkout in
+  <conda_base>/opt/GeneMark-ETP. run_genemark_etp.sh calls GeneMark-ETP's own
+  gmetp.pl directly — NO BRAKER, NO GenomeThreader, NO container (GeneMark-ETP
+  bundles GeneMark + ProtHint + static bedtools/samtools/hisat2/diamond/
+  stringtie). Override the checkout location with GENEMARK_ETP_DIR. GeneMark-ETP
+  is academic / non-commercial (CC BY-NC-SA; no licence key needed).
 
 To run the bin/ scripts by hand (main.nf does this for you), prepend the tool's
 env to PATH, e.g.  export PATH=$GM_CONDA_BASE/envs/annot/bin:$PATH

@@ -74,21 +74,26 @@ This covers the default **two-stream** run (AUGUSTUS + RNA-seq + QC), which is
 fully reproducible from conda alone.
 
 The optional **3rd stream, GeneMark-ETP** (`--run_genemark true`; the paper's
-headline three-stream configuration) needs BRAKER3: `run_genemark_etp.sh` drives
-GeneMark-ETP through `braker.pl`, which also requires GenomeThreader and several
-Perl modules. This stack is **not conda-installable on a clean machine** — the
-bioconda `braker3` recipe requires `genomethreader`, which bioconda no longer
-ships. Use the **official BRAKER container**, which bundles `braker.pl`,
-GeneMark-ETP, GenomeThreader and all Perl dependencies:
+headline three-stream configuration) is **conda-only as well — no BRAKER, no
+GenomeThreader, no container.** `setup_envs.sh` builds a sixth `genemark` env
+(Perl + the required CPAN modules + python3) and clones GeneMark-ETP into
+`<conda_base>/opt/GeneMark-ETP`. `run_genemark_etp.sh` then calls GeneMark-ETP's
+own `gmetp.pl` directly — GeneMark-ETP bundles GeneMark-ES/ET/EP+, GeneMarkS-T
+and ProtHint, and ships static binaries of every third-party tool it needs
+(bedtools, samtools, hisat2, diamond, stringtie, gffread), so nothing else is
+required. (Driving it through `braker.pl` is what used to pull in GenomeThreader;
+calling `gmetp.pl` directly avoids that entirely.)
 
 ```bash
-singularity build braker3.sif docker://teambraker/braker3:latest
-export BRAKER_ENV=...        # point run_genemark_etp.sh at the container's braker
+bash setup_envs.sh                       # includes the genemark env + repo clone
+GM_SKIP_GENEMARK=1 bash setup_envs.sh    # two-stream only: skip the 3rd stream
+export GENEMARK_ETP_DIR=/path/to/GeneMark-ETP   # optional: custom checkout location
 ```
 
-(GeneMark-ETP itself, <https://github.com/gatech-genemark/GeneMark-ETP>, is
-CC BY-NC-SA, academic/non-commercial, no license key — but on its own it does not
-satisfy `run_genemark_etp.sh`, which invokes `braker.pl`.)
+GeneMark-ETP (<https://github.com/gatech-genemark/GeneMark-ETP>) is CC BY-NC-SA
+(academic / non-commercial; no license key needed). Validated end-to-end on rice
+from a clean conda install: **41,534 genes, poales BUSCO 96.5%**, reproducing the
+paper's three-stream headline.
 
 **External databases** (not installed by conda; stage these before a full run):
 
