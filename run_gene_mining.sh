@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# run_gene_mining.sh — production driver: mine a clean gene catalog from a
-# (non-model, possibly contaminated) genome assembly using RNA-seq + ab-initio +
-# protein evidence, then QC-filter out the junk. Verified end-to-end on real
-# whole-body insect data. This shell driver targets messy/contaminated assemblies
-# (per-contig AUGUSTUS + RagTag AGP lift); for finished chromosome-scale genomes
-# use the one-command Nextflow pipeline `main.nf` instead.
+# run_gene_mining.sh — shell driver for MESSY / contaminated, fragmented
+# assemblies: mine a clean gene catalog from a (non-model, possibly contaminated)
+# genome using RNA-seq + ab-initio + protein evidence, then QC-filter out the junk.
+# It uses per-contig AUGUSTUS + a RagTag AGP coordinate lift (see README "Lessons").
+# Developed on real whole-body insect data and provided as-is; for finished
+# chromosome-scale genomes the validated, recommended entry point is the
+# one-command Nextflow pipeline `main.nf`.
 #
 #   Stages 1-4 (annotation):  final = usable AUGUSTUS (ab initio) ∪ RNA-only TransDecoder loci
 #   Stages 5-7 (QC filters):  drop residual bacterial genes (eggNOG taxonomy) and
