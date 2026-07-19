@@ -61,6 +61,21 @@ of the RNA-seq models), `bin/union_genes.py` (standalone union utility).
 
 ---
 
+## Setup
+
+Create the conda environments the pipeline uses, in one command (needs conda or
+mamba on PATH):
+
+```bash
+bash setup_envs.sh     # builds: annot, augustus, rmod, eggnog, busco, braker3
+```
+
+GeneMark-ETP is bundled with the bioconda `braker3` package and needs **no
+license key**. Databases (eggNOG ~50 GB, BUSCO lineage, optional Pfam) are
+fetched on first use — see the notes `setup_envs.sh` prints. The pipeline finds
+the envs under `$HOME/miniconda3/envs` by default; point elsewhere with
+`export GM_CONDA_BASE=/path/to/miniconda`.
+
 ## Run
 
 **One command, end to end (Nextflow).** `main.nf` runs every stage — masking,
