@@ -40,15 +40,18 @@ Databases are fetched on first use, not by this script:
   - Pfam (opt.)  : download Pfam-A.hmm and `hmmpress` it; pass --pfam to use it.
 
 3rd stream — GeneMark-ETP (only if you pass --run_genemark true):
-  bioconda `braker3` is NOT installable on a clean machine (it needs
-  genomethreader, which bioconda no longer ships). Two working options:
-    (a) official BRAKER container (bundles GeneMark-ETP), e.g.
-          singularity build braker3.sif docker://teambraker/braker3:latest
-    (b) GeneMark-ETP standalone (CC BY-NC-SA, academic/non-commercial; no key):
-          git clone https://github.com/gatech-genemark/GeneMark-ETP
-          export GENEMARK_PATH="$PWD/GeneMark-ETP/bin"
-  run_genemark_etp.sh reads GENEMARK_PATH (and BRAKER_ENV for perl deps).
+  run_genemark_etp.sh drives GeneMark-ETP through braker.pl, which also needs
+  GenomeThreader + several Perl modules. This stack is NOT conda-installable on
+  a clean machine (bioconda `braker3` requires genomethreader, no longer
+  shipped). Use the official BRAKER container, which bundles braker.pl +
+  GeneMark-ETP + GenomeThreader + the Perl deps:
+        singularity build braker3.sif docker://teambraker/braker3:latest
+  then point run_genemark_etp.sh at it (BRAKER_ENV / GENEMARK_PATH). Cloning
+  GeneMark-ETP alone (github.com/gatech-genemark/GeneMark-ETP) does not suffice.
   The two-stream default below needs none of this.
+
+To run the bin/ scripts by hand (main.nf does this for you), prepend the tool's
+env to PATH, e.g.  export PATH=$GM_CONDA_BASE/envs/annot/bin:$PATH
 
 nextflow.config resolves the env prefixes from $HOME/miniconda3/envs by default
 (override with GM_CONDA_BASE). Two-stream run (works with the five envs above):

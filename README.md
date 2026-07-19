@@ -70,27 +70,37 @@ mamba on PATH):
 bash setup_envs.sh     # builds: annot, augustus, rmod, eggnog, busco
 ```
 
-This covers the default **two-stream** run (AUGUSTUS + RNA-seq + QC). The
-optional **3rd stream, GeneMark-ETP** (`--run_genemark true`) is *not*
-conda-installable on a clean machine — the bioconda `braker3` recipe requires
-`genomethreader`, which bioconda no longer ships. For it, either use the official
-BRAKER container (`docker://teambraker/braker3`, which bundles GeneMark-ETP), or
-install **GeneMark-ETP standalone** from
-<https://github.com/gatech-genemark/GeneMark-ETP> (CC BY-NC-SA, academic /
-non-commercial use; **no license key required**) and point `run_genemark_etp.sh`
-at it via `GENEMARK_PATH`:
+This covers the default **two-stream** run (AUGUSTUS + RNA-seq + QC), which is
+fully reproducible from conda alone.
+
+The optional **3rd stream, GeneMark-ETP** (`--run_genemark true`; the paper's
+headline three-stream configuration) needs BRAKER3: `run_genemark_etp.sh` drives
+GeneMark-ETP through `braker.pl`, which also requires GenomeThreader and several
+Perl modules. This stack is **not conda-installable on a clean machine** — the
+bioconda `braker3` recipe requires `genomethreader`, which bioconda no longer
+ships. Use the **official BRAKER container**, which bundles `braker.pl`,
+GeneMark-ETP, GenomeThreader and all Perl dependencies:
 
 ```bash
-git clone https://github.com/gatech-genemark/GeneMark-ETP
-export GENEMARK_PATH="$PWD/GeneMark-ETP/bin"
+singularity build braker3.sif docker://teambraker/braker3:latest
+export BRAKER_ENV=...        # point run_genemark_etp.sh at the container's braker
 ```
 
-This is the configuration used for the paper's headline (three-stream) results.
+(GeneMark-ETP itself, <https://github.com/gatech-genemark/GeneMark-ETP>, is
+CC BY-NC-SA, academic/non-commercial, no license key — but on its own it does not
+satisfy `run_genemark_etp.sh`, which invokes `braker.pl`.)
 
 Databases (eggNOG ~50 GB, BUSCO lineage, optional Pfam) are fetched on first use
 — see the notes `setup_envs.sh` prints. The pipeline finds the envs under
 `$HOME/miniconda3/envs` by default; point elsewhere with
 `export GM_CONDA_BASE=/path/to/miniconda`.
+
+**PATH / env activation.** The Nextflow pipeline prepends each tool's conda env
+to `PATH` per process, so you do **not** activate anything to run `main.nf`. If
+you instead call the `bin/` scripts by hand, put the relevant env first on
+`PATH` (e.g. `export PATH=$GM_CONDA_BASE/envs/annot/bin:$PATH`) — several tools
+(BUSCO, eggNOG-mapper) are noarch Python packages whose entry points need their
+own env's `python3` resolved first.
 
 ## Run
 
