@@ -90,10 +90,24 @@ export BRAKER_ENV=...        # point run_genemark_etp.sh at the container's brak
 CC BY-NC-SA, academic/non-commercial, no license key — but on its own it does not
 satisfy `run_genemark_etp.sh`, which invokes `braker.pl`.)
 
-Databases (eggNOG ~50 GB, BUSCO lineage, optional Pfam) are fetched on first use
-— see the notes `setup_envs.sh` prints. The pipeline finds the envs under
-`$HOME/miniconda3/envs` by default; point elsewhere with
-`export GM_CONDA_BASE=/path/to/miniconda`.
+**External databases** (not installed by conda; stage these before a full run):
+
+- **RepeatMasker library (Dfam).** A fresh `conda install repeatmasker` does
+  *not* bundle the Dfam library, and RepeatMasker ≥ 4.1.5 aborts at startup with
+  `FamDB data directory not found` — **even when you pass `--repeat_lib`** —
+  until it is configured. Put a Dfam partition in the `rmod` env's
+  `share/RepeatMasker/Libraries/` (the small `dfamNN_full.0.h5` is enough) or set
+  `FAMDB_DATA_DIR`.
+- **eggNOG-mapper DB (~50 GB).** `run_eggnog.sh` downloads it on first run, or
+  set `$EGGNOG_DB` to an existing copy.
+- **BUSCO lineage.** BUSCO downloads it on first run, or pre-fetch with
+  `busco --download <lineage_odb10>`.
+- **Pfam (optional).** Download `Pfam-A.hmm` and `hmmpress` it; pass `--pfam`.
+
+The pipeline finds the envs under `$HOME/miniconda3/envs` by default; point
+elsewhere with `export GM_CONDA_BASE=/path/to/miniconda`. `setup_envs.sh`
+installs the latest bioconda builds; pin versions (`conda env export`) if you
+need bit-level reproducibility.
 
 **PATH / env activation.** The Nextflow pipeline prepends each tool's conda env
 to `PATH` per process, so you do **not** activate anything to run `main.nf`. If
