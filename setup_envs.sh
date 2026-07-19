@@ -28,6 +28,27 @@ create eggnog    eggnog-mapper diamond
 create busco     busco
 # optional: `hmmer` in the annot env enables the Pfam ORF-retention step (--pfam)
 
+# --- RepeatMasker Dfam FamDB ---
+# The bioconda repeatmasker package ships NO Dfam library, and RepeatMasker >=4.1.5
+# aborts at startup ("FamDB data directory not found") even with --repeat_lib.
+# Fetch the small Dfam root partition (~60 MB) and point famdb.conf at it. The
+# FamDB format must match the RepeatMasker version (Dfam 4.0 = famdb 3.x = RM 4.2.x).
+echo "[setup] configuring RepeatMasker Dfam library (~60 MB download)"
+CB="$("$SOLVER" info --base 2>/dev/null || echo "$HOME/miniconda3")"
+FAMDIR="$CB/envs/rmod/share/RepeatMasker/Libraries/famdb"
+CONF="$(ls "$CB"/envs/rmod/share/famdb-*/famdb.conf 2>/dev/null | head -1)"
+mkdir -p "$FAMDIR"
+if ! ls "$FAMDIR"/*.h5 >/dev/null 2>&1; then
+  ( cd "$FAMDIR" && curl -fsSL -o dfam40.0.h5.gz \
+      https://www.dfam.org/releases/current/families/FamDB/dfam40.0.h5.gz \
+    && gunzip -f dfam40.0.h5.gz ) || echo "[setup] WARN: Dfam download failed — fetch it manually"
+fi
+if [ -n "$CONF" ]; then
+  grep -q '^FAMDB_DATA_DIR' "$CONF" \
+    && sed -i "s|^FAMDB_DATA_DIR.*|FAMDB_DATA_DIR = $FAMDIR|" "$CONF" \
+    || echo "FAMDB_DATA_DIR = $FAMDIR" >> "$CONF"
+fi
+
 cat <<'NOTE'
 
 [setup] five conda environments ready (annot, augustus, rmod, eggnog, busco).

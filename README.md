@@ -92,16 +92,14 @@ satisfy `run_genemark_etp.sh`, which invokes `braker.pl`.)
 
 **External databases** (not installed by conda; stage these before a full run):
 
-- **RepeatMasker library (Dfam).** A fresh `conda install repeatmasker` does
-  *not* bundle the Dfam library, and RepeatMasker ≥ 4.1.5 aborts at startup with
-  `FamDB data directory not found` — **even when you pass `--repeat_lib`** —
-  until it is configured. Download a Dfam FamDB partition (the small
-  `dfamNN_full.0.h5` is enough) from <https://www.dfam.org/releases/current/families/FamDB/>
-  into the `rmod` env's `share/RepeatMasker/Libraries/famdb/`, or set
-  `FAMDB_DATA_DIR`. Dfam release page: <https://www.dfam.org/releases/>. The
-  FamDB **format must match the RepeatMasker version** (RepeatMasker 4.2.4 uses
-  famdb 3.x and rejects an older 2.x `.h5` with "cannot be read by this version
-  of famdb.py") — so pin `repeatmasker` (see below) and fetch the matching Dfam.
+- **RepeatMasker library (Dfam).** `setup_envs.sh` downloads the Dfam root
+  partition (~60 MB) into the `rmod` env and points `famdb.conf` at it
+  automatically — a fresh `conda install repeatmasker` ships **no** Dfam and
+  aborts at startup with `FamDB data directory not found` **even when you pass
+  `--repeat_lib`**. The FamDB format must match the RepeatMasker version (Dfam 4.0
+  = famdb 3.x = RepeatMasker 4.2.x); if your `repeatmasker` build differs, fetch a
+  matching partition from <https://www.dfam.org/releases/> and set
+  `FAMDB_DATA_DIR` in the env's `share/famdb-*/famdb.conf`.
 - **eggNOG-mapper DB (~50 GB).** `run_eggnog.sh` downloads it on first run
   (from <http://eggnog6.embl.de/download/>), or run `download_eggnog_data.py`, or
   set `$EGGNOG_DB` to an existing copy.
