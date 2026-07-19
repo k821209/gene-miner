@@ -41,11 +41,14 @@ Databases are fetched on first use, not by this script:
 
 3rd stream — GeneMark-ETP (only if you pass --run_genemark true):
   bioconda `braker3` is NOT installable on a clean machine (it needs
-  genomethreader, which bioconda no longer ships). Use the official BRAKER
-  container, which bundles GeneMark-ETP, e.g.:
-     singularity build braker3.sif docker://teambraker/braker3:latest
-  then point run_genemark_etp.sh at it (BRAKER_ENV / GENEMARK_PATH), or run
-  GeneMark-ETP standalone. The two-stream default below needs none of this.
+  genomethreader, which bioconda no longer ships). Two working options:
+    (a) official BRAKER container (bundles GeneMark-ETP), e.g.
+          singularity build braker3.sif docker://teambraker/braker3:latest
+    (b) GeneMark-ETP standalone: a free download (CC BY-NC-SA, academic /
+        non-commercial; no license key), then
+          export GENEMARK_PATH=/path/to/GeneMark-ETP/bin
+  run_genemark_etp.sh reads GENEMARK_PATH (and BRAKER_ENV for perl deps).
+  The two-stream default below needs none of this.
 
 nextflow.config resolves the env prefixes from $HOME/miniconda3/envs by default
 (override with GM_CONDA_BASE). Two-stream run (works with the five envs above):

@@ -73,9 +73,12 @@ bash setup_envs.sh     # builds: annot, augustus, rmod, eggnog, busco
 This covers the default **two-stream** run (AUGUSTUS + RNA-seq + QC). The
 optional **3rd stream, GeneMark-ETP** (`--run_genemark true`) is *not*
 conda-installable on a clean machine — the bioconda `braker3` recipe requires
-`genomethreader`, which bioconda no longer ships. For it, use the official
-BRAKER container (`docker://teambraker/braker3`, which bundles GeneMark-ETP) and
-point `run_genemark_etp.sh` at it, or run GeneMark-ETP standalone.
+`genomethreader`, which bioconda no longer ships. For it, either use the official
+BRAKER container (`docker://teambraker/braker3`, which bundles GeneMark-ETP), or
+install **GeneMark-ETP standalone** — a free download (CC BY-NC-SA, academic /
+non-commercial use; **no license key required**) — and point
+`run_genemark_etp.sh` at it via `GENEMARK_PATH`. This is the configuration used
+for the paper's headline (three-stream) results.
 
 Databases (eggNOG ~50 GB, BUSCO lineage, optional Pfam) are fetched on first use
 — see the notes `setup_envs.sh` prints. The pipeline finds the envs under
