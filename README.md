@@ -95,14 +95,21 @@ satisfy `run_genemark_etp.sh`, which invokes `braker.pl`.)
 - **RepeatMasker library (Dfam).** A fresh `conda install repeatmasker` does
   *not* bundle the Dfam library, and RepeatMasker ≥ 4.1.5 aborts at startup with
   `FamDB data directory not found` — **even when you pass `--repeat_lib`** —
-  until it is configured. Put a Dfam partition in the `rmod` env's
-  `share/RepeatMasker/Libraries/` (the small `dfamNN_full.0.h5` is enough) or set
-  `FAMDB_DATA_DIR`.
-- **eggNOG-mapper DB (~50 GB).** `run_eggnog.sh` downloads it on first run, or
+  until it is configured. Download a Dfam FamDB partition (the small
+  `dfamNN_full.0.h5` is enough) from <https://www.dfam.org/releases/current/families/FamDB/>
+  into the `rmod` env's `share/RepeatMasker/Libraries/famdb/`, or set
+  `FAMDB_DATA_DIR`. Dfam release page: <https://www.dfam.org/releases/>.
+- **eggNOG-mapper DB (~50 GB).** `run_eggnog.sh` downloads it on first run
+  (from <http://eggnog6.embl.de/download/>), or run `download_eggnog_data.py`, or
   set `$EGGNOG_DB` to an existing copy.
 - **BUSCO lineage.** BUSCO downloads it on first run, or pre-fetch with
-  `busco --download <lineage_odb10>`.
-- **Pfam (optional).** Download `Pfam-A.hmm` and `hmmpress` it; pass `--pfam`.
+  `busco --download <lineage_odb10>`; lineages are listed at
+  <https://busco-data.ezlab.org/v5/data/lineages/>.
+- **Protein evidence (Swiss-Prot).** UniProtKB/Swiss-Prot FASTA:
+  <https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.fasta.gz>.
+- **Pfam (optional).** `Pfam-A.hmm` from
+  <https://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/Pfam-A.hmm.gz>;
+  `hmmpress` it and pass `--pfam`.
 
 The pipeline finds the envs under `$HOME/miniconda3/envs` by default; point
 elsewhere with `export GM_CONDA_BASE=/path/to/miniconda`. `setup_envs.sh`
