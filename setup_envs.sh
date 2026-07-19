@@ -34,8 +34,9 @@ create busco     busco
 # Fetch the small Dfam root partition (~60 MB) and point famdb.conf at it. The
 # FamDB format must match the RepeatMasker version (Dfam 4.0 = famdb 3.x = RM 4.2.x).
 echo "[setup] configuring RepeatMasker Dfam library (~60 MB download)"
-# NB: use `conda info --base` (clean path); `mamba info --base` prints a labelled line.
-CB="$(conda info --base 2>/dev/null || true)"; [ -n "$CB" ] || CB="$HOME/miniconda3"
+# Derive the conda base from $SOLVER's own location (works for conda or mamba,
+# and avoids `mamba info --base`, which prints a labelled line rather than a path).
+CB="$(dirname "$(dirname "$SOLVER")")"
 FAMDIR="$CB/envs/rmod/share/RepeatMasker/Libraries/famdb"
 mkdir -p "$FAMDIR"
 if ! ls "$FAMDIR"/*.h5 >/dev/null 2>&1; then
