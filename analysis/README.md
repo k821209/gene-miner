@@ -75,3 +75,14 @@ python3 ../bin/plot_splice_support.py --chrom 10 --start 1093271 --end 1096798 -
         --junctions junctions.tsv --out locus.png \
         --bam sorted_1.bam --bam sorted_2.bam --bam sorted_3.bam --bam sorted_4.bam
 ```
+
+## Main-text figures 2 and 4
+
+Standalone matplotlib scripts that redraw the two data figures from their
+(hard-coded, from the tables) values — kept so the layouts can be regenerated.
+
+```bash
+python3 plot_figure2_venn.py          # Figure 2 (revised-model Venn, rice/soybean)
+python3 plot_figure4_completeness.py  # Figure 4 (completeness-vs-evidence + isoforms)
+```
+`plot_figure2_venn.py` needs `matplotlib-venn`.
