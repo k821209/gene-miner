@@ -30,12 +30,12 @@ for key,ax in zip(('a','b'),axes):
         if t:
             t.set_fontsize(17 if sid=='111' else 11.5)
             t.set_fontweight('bold' if sid=='111' else 'normal'); t.set_color('#111')
-    ax.set_xlim(-1.0,1.0); ax.set_ylim(-1.15,1.25); ax.set_aspect('equal'); ax.axis('off')
+    ax.set_xlim(-1.08,1.08); ax.set_ylim(-1.18,1.28); ax.set_aspect('equal'); ax.axis('off')
     # set labels OUTSIDE circles, BELOW header
-    ax.text(-0.66,0.62,'more isoforms',color=GREEN,fontsize=12,fontweight='bold',ha='center')
-    ax.text(-0.66,0.53,f"({d['iso']})",color=GREEN,fontsize=9.5,ha='center')
-    ax.text( 0.66,0.62,'more coding exons',color=BLUE,fontsize=12,fontweight='bold',ha='center')
-    ax.text( 0.66,0.53,f"({d['exon']})",color=BLUE,fontsize=9.5,ha='center')
+    ax.text(-0.54,0.66,'more isoforms',color=GREEN,fontsize=11.5,fontweight='bold',ha='center')
+    ax.text(-0.54,0.575,f"({d['iso']})",color=GREEN,fontsize=9.5,ha='center')
+    ax.text( 0.54,0.66,'more coding exons',color=BLUE,fontsize=12,fontweight='bold',ha='center')
+    ax.text( 0.54,0.575,f"({d['exon']})",color=BLUE,fontsize=9.5,ha='center')
     ax.text( 0.0,-0.92,'longer CDS',color=ORANGE,fontsize=12,fontweight='bold',ha='center')
     ax.text( 0.0,-1.00,f"({d['cds']})",color=ORANGE,fontsize=9.5,ha='center')
     # rounded box + header + corner (axes coords)
