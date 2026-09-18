@@ -12,7 +12,7 @@ echo "[$(date +%T)] split by contig"
 awk '/^>/{if(f)close(f); name=substr($1,2); sub(/ .*/,"",name); f="aug_split/"name".fa"} {print > f}' clean_masked_contigs.fa
 echo "  split files: $(ls aug_split | wc -l)"
 echo "[$(date +%T)] AUGUSTUS parallel (-P 38, BUSCO model)"
-ls aug_split/*.fa | xargs -P 38 -I {} bash -c 'b=$(basename "$1" .fa); '"$AUG"'/bin/augustus --strand=both --genemodel=complete --gff3=on --UTR=off --species='"$SP"' --AUGUSTUS_CONFIG_PATH='"$AUG"'/config "$1" > aug_out/"$b".gff3 2>/dev/null' _ {}
+ls aug_split/*.fa | xargs -P 38 -I {} bash -c 'b=$(basename "$1" .fa); '"$AUG"'/bin/augustus --strand=both --genemodel=complete --gff3=on --UTR=off --sample=100 --species='"$SP"' --AUGUSTUS_CONFIG_PATH='"$AUG"'/config "$1" > aug_out/"$b".gff3 2>/dev/null' _ {}
 echo "[$(date +%T)] merge (prefix IDs by contig)"
 : > augustus_contigs.gff3
 for g in aug_out/*.gff3; do

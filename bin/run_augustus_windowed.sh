@@ -35,7 +35,10 @@ echo "windows: $(wc -l < jobs.txt)"
 
 run_one(){
   fa=$1; s=$2; e=$3; b=$(basename "$fa" .fa)
-  augustus --species="$SP" --strand=both --genemodel=complete --gff3=on --UTR=off \
+  # --sample=100: AUGUSTUS reports a posterior gene probability only when it samples;
+  # some shipped species files (e.g. rice) set sample=0, which scores every gene 1 and
+  # silently disables the confidence filter in build_union.py.
+  augustus --species="$SP" --strand=both --genemodel=complete --gff3=on --UTR=off --sample=100 \
     --predictionStart="$s" --predictionEnd="$e" "$fa" > "out/${b}_${s}.gff3" 2>/dev/null
 }
 export -f run_one; export SP
