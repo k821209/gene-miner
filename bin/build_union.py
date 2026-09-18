@@ -21,7 +21,6 @@ from collections import defaultdict, OrderedDict
 #   optional: GeneMark-ETP genemark.gtf via --genemark
 # Output: union.gff3
 
-SC, MINAA = 0.8, 100
 
 
 def merge(iv):
@@ -127,7 +126,12 @@ ap.add_argument('--prefix', default='GMG',
 ap.add_argument('--genemark', default=None,
                 help='optional GeneMark-ETP genemark.gtf to add as a third evidence stream')
 ap.add_argument('--out', default='union.gff3')
+ap.add_argument('--min-score', type=float, default=0.8,
+                help='minimum AUGUSTUS gene posterior probability for a usable model')
+ap.add_argument('--min-aa', type=int, default=100,
+                help='minimum protein length (aa) for AUGUSTUS and GeneMark-ETP models')
 args = ap.parse_args()
+SC, MINAA = args.min_score, args.min_aa
 
 aug = [t for t in load('augustus_scaffold.gff3', 'A', True) if t['aa'] >= MINAA]
 rna = load('annot/genome.transdecoder.gff3', 'R', False)

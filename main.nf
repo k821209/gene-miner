@@ -181,7 +181,7 @@ process BUILD_UNION {
   export PATH=${params.env_annot}/bin:\$PATH
   [ -e augustus_scaffold.gff3 ] || cp ${aug_gff} augustus_scaffold.gff3
   mkdir -p annot && cp ${rna_gff} annot/genome.transdecoder.gff3
-  python3 ${projectDir}/bin/build_union.py --prefix ${params.gene_prefix} ${gm_arg} > union_summary.txt 2>&1
+  python3 ${projectDir}/bin/build_union.py --prefix ${params.gene_prefix} ${gm_arg} --min-score ${params.aug_score} --min-aa ${params.aug_min_aa} > union_summary.txt 2>&1
   python3 ${projectDir}/bin/extract_pep.py ${genome} union.gff3 union.pep.fa
   """
 }
