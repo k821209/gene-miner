@@ -50,13 +50,9 @@ def cds_introns(path, pc=False):
     return genes, allint
 
 def clen(iv): return sum(e - s + 1 for s, e in iv)
-def ofrac(a, b):
-    ov = 0
-    for s, e in a:
-        for bs, be in b:
-            lo, hi = max(s, bs), min(e, be)
-            if hi >= lo: ov += hi - lo + 1
-    return ov / (min(clen(a), clen(b)) or 1)
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from gm_overlap import ofrac   # merged-CDS footprint overlap (see gm_overlap.py)
 
 gm, _ = cds_introns(gm_f)
 ref, _ = cds_introns(ref_f, pc=True)

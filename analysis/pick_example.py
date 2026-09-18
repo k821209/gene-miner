@@ -29,13 +29,9 @@ def parse(path, pc=False):
         cds=sorted(d['cds']); out[g]=dict(chrom=d['chrom'],strand=d['strand'],cds=cds,introns=d['introns'],start=min(s for s,e in cds),end=max(e for s,e in cds))
     return out
 def clen(iv): return sum(e-s+1 for s,e in iv)
-def ofrac(a,b):
-    ov=0
-    for s,e in a:
-        for bs,be in b:
-            lo,hi=max(s,bs),min(e,be)
-            if hi>=lo: ov+=hi-lo+1
-    return ov/(min(clen(a),clen(b)) or 1)
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from gm_overlap import ofrac   # merged-CDS footprint overlap (see gm_overlap.py)
 gm=parse(gm_f); ref=parse(ref_f,pc=True)
 J=set()
 for line in open(jtsv):

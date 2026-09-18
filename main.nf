@@ -233,6 +233,40 @@ process TE_FILTER {
   """
 }
 
+process SPROT_HITS {
+  publishDir "${params.outdir}/qc", mode: "copy"
+  input:
+    path pep
+    path proteome
+  output:
+    path "sprot_hits.outfmt6", emit: hits
+  script:
+  """
+  export PATH=${params.env_augustus}/bin:\$PATH
+  diamond makedb --in ${proteome} -d prot -p ${task.cpus} > makedb.log 2>&1
+  diamond blastp -q ${pep} -d prot -p ${task.cpus} -e 1e-5 -k1 --outfmt 6 \
+    -o sprot_hits.outfmt6 > blastp.log 2>&1
+  """
+}
+
+process ANNOTATE_TIERS {
+  publishDir "${params.outdir}", mode: "copy"
+  input:
+    path gff
+    path td
+    path ann
+    path hits
+  output:
+    path "union.final.tiers.gff3", emit: gff
+    path "confidence_tiers.tsv",   emit: tsv
+  script:
+  """
+  export PATH=${params.env_annot}/bin:\$PATH
+  python3 ${projectDir}/bin/annotate_tiers.py ${gff} union.final.tiers.gff3 \
+    --td ${td} --eggnog ${ann} --sprot ${hits} --summary confidence_tiers.tsv > tiers.log 2>&1
+  """
+}
+
 process BUSCO {
   publishDir "${params.outdir}/busco", mode: "copy"
   input:
@@ -280,6 +314,8 @@ workflow {
     EGGNOG(BUILD_UNION.out.pep)
     FILTER_TAXONOMY(EGGNOG.out.ann, BUILD_UNION.out.gff, BUILD_UNION.out.pep)
     TE_FILTER(MASK_GENOME.out.rmout, FILTER_TAXONOMY.out.gff, FILTER_TAXONOMY.out.pep)
+    SPROT_HITS(TE_FILTER.out.pep, proteome)
+    ANNOTATE_TIERS(TE_FILTER.out.gff, TRANSDECODER.out.gff, EGGNOG.out.ann, SPROT_HITS.out.hits)
     BUSCO(TE_FILTER.out.pep)
   }
 }

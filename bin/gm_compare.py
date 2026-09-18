@@ -116,7 +116,8 @@ def main():
     ref, ref_tx = parse_gff(a.ref, want_protein_coding=True)
     ridx = index(ref)
 
-    matched_ref = set()
+    matched_ref = set()   # reference genes that are some locus' best match
+    any_ref = set()       # reference genes reached by ANY locus (fusion-inflated)
     gm_recovered = gm_novel = identical = revised = 0
     for gid, gv in gm.items():
         cand = ridx.get((gv['chrom'], gv['strand']), [])
@@ -125,6 +126,8 @@ def main():
             if re_ < gv['start'] or rs > gv['end']:
                 continue
             ro = overlaps(gv, ref[rid])
+            if ro >= a.min_ro:
+                any_ref.add(rid)
             if ro > best_ro:
                 best_ro, best = ro, rid
         if best and best_ro >= a.min_ro:
@@ -150,6 +153,7 @@ def main():
         ('  recovered_revised_structure', revised),
         ('gm_novel_loci_absent_from_reference', gm_novel),
         ('reference_loci_missed_by_gm', ref_missed),
+        ('reference_loci_reached_by_any_locus', len(any_ref)),
         ('min_footprint_overlap', a.min_ro),
     ]
     out = sys.stdout if a.out == '-' else open(a.out, 'w')

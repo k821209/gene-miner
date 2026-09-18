@@ -26,13 +26,9 @@ def parse(path, pc=False):
         iv=sorted(set(iv)); G[g]=dict(chrom=ch[g],strand=st[g],cds=iv,start=min(s for s,e in iv),end=max(e for s,e in iv))
     return G
 def clen(iv): return sum(e-s+1 for s,e in iv)
-def ofrac(a,b):
-    ov=0
-    for s,e in a['cds']:
-        for bs,be in b['cds']:
-            lo,hi=max(s,bs),min(e,be)
-            if hi>=lo: ov+=hi-lo+1
-    return ov/(min(clen(a['cds']),clen(b['cds'])) or 1)
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from gm_overlap import ofrac   # merged-CDS footprint overlap (see gm_overlap.py)
 raw=parse(raw_f); fin=parse(fin_f); ref=parse(ref_f, pc=True)
 # index final and raw by chrom
 def idx_by_chrom(G):
