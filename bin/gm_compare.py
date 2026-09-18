@@ -5,9 +5,15 @@ recovered, how many Gene-Miner loci are novel (absent from the reference), how
 many reference genes are missed, and (among recovered) how many have an
 identical vs a revised CDS structure.
 
-Loci are matched by same-strand CDS-footprint overlap (reciprocal >= --min_ro of
-the shorter locus). Structure is "identical" when the sorted CDS interval set is
-exactly equal.
+Loci are matched by same-strand CDS-footprint overlap. The footprint of a locus
+is the MERGED set of its coding bases (the union over its isoforms, each base
+counted once); for loci a and b it is
+
+    ov(a, b) / min(|a|, |b|)  >= --min_ro
+
+where ov is the number of coding bases they share and |x| the size of x's
+footprint. Structure is "identical" when the sorted CDS interval set is exactly
+equal.
 
 Usage:
   gm_compare.py --gm union.final.gff3 --ref reference.gff3 [--min_ro 0.5] [--out report.tsv]
@@ -66,18 +72,37 @@ def index(genes):
 def cds_len(iv):
     return sum(e - s + 1 for s, e in iv)
 
+def merge(iv):
+    """merge intervals so every coding base is counted once"""
+    out = []
+    for s, e in sorted(iv):
+        if out and s <= out[-1][1] + 1:
+            out[-1][1] = max(out[-1][1], e)
+        else:
+            out.append([s, e])
+    return out
+
+
+def footprint(g):
+    if 'm' not in g:
+        g['m'] = merge(g['cds'])
+        g['mlen'] = cds_len(g['m'])
+    return g
+
+
 def overlaps(a, b):
-    """reciprocal CDS-footprint overlap fraction of the shorter locus"""
-    ov = 0
-    j = 0
-    bi = b['cds']
-    for s, e in a['cds']:
-        for bs, be in bi:
-            lo, hi = max(s, bs), min(e, be)
-            if hi >= lo:
-                ov += hi - lo + 1
-    shorter = min(cds_len(a['cds']), cds_len(b['cds'])) or 1
-    return ov / shorter
+    """shared coding bases / the smaller merged CDS footprint"""
+    a, b = footprint(a), footprint(b)
+    i = j = ov = 0
+    while i < len(a['m']) and j < len(b['m']):
+        lo, hi = max(a['m'][i][0], b['m'][j][0]), min(a['m'][i][1], b['m'][j][1])
+        if hi >= lo:
+            ov += hi - lo + 1
+        if a['m'][i][1] < b['m'][j][1]:
+            i += 1
+        else:
+            j += 1
+    return ov / max(min(a['mlen'], b['mlen']), 1)
 
 def main():
     ap = argparse.ArgumentParser()
@@ -125,7 +150,7 @@ def main():
         ('  recovered_revised_structure', revised),
         ('gm_novel_loci_absent_from_reference', gm_novel),
         ('reference_loci_missed_by_gm', ref_missed),
-        ('min_reciprocal_overlap', a.min_ro),
+        ('min_footprint_overlap', a.min_ro),
     ]
     out = sys.stdout if a.out == '-' else open(a.out, 'w')
     for k, v in rows:
