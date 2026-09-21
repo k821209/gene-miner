@@ -5,12 +5,33 @@ import matplotlib.gridspec as gridspec
 from matplotlib.lines import Line2D
 from matplotlib.transforms import blended_transform_factory
 import numpy as np
-G = {
- 'soybean':      dict(reads=0.89e8, rep=91.9, allo=92.1, brk=77.6, italic=False),
- 'C. elegans':   dict(reads=1.12e8, rep=95.1, allo=98.3, brk=97.7, italic=True),
- 'rice':         dict(reads=1.18e8, rep=93.6, allo=96.5, brk=90.2, italic=False),
- 'D. melanogaster': dict(reads=1.39e8, rep=96.5, allo=98.9, brk=95.6, italic=True),
+# Every plotted number is read from the analysis outputs, not typed in:
+#   BUSCO from each runs short_summary, transcripts per gene from gm_compare.pys
+#   report (catalogue and reference) and from the same report run on BRAKER3.
+import glob, os, re
+R = os.path.expanduser("~/gene-miner-runs"); REV = R + "/revision"
+def busco(d):
+    f = glob.glob(os.path.join(d, "short_summary*.txt"))[0]
+    return float(re.search(r"C:([0-9.]+)%", open(f).read()).group(1))
+def gmc(path, key):
+    for line in open(path):
+        k, *v = line.rstrip("\n").split("\t")
+        if k.strip() == key: return float(v[0])
+SRC = {  # name: (catalogue dir, BRAKER3 BUSCO dir, read count, italic)
+ "soybean":         (REV + "/regen/soybean", R + "/soybean/braker_soy/busco_braker_soy_primary", 1.785e8, False),
+ "C. elegans":      (REV + "/regen/cele",    R + "/cele/braker_cele/busco_braker_primary",       2.246e8, True),
+ "rice":            (REV + "/regen/rice_s",  R + "/rice/etp_run/busco_braker_full",              2.363e8, False),
+ "D. melanogaster": (REV + "/regen/dmel",    R + "/dmel/braker_dmel/busco_braker_dmel_primary",  2.784e8, True),
 }
+BRK_TSV = {"soybean": "soybean", "C. elegans": "cele", "rice": "rice", "D. melanogaster": "dmel"}
+G = {}
+for name, (cat, bbusco, reads, it) in SRC.items():
+    G[name] = dict(reads=reads, rep=busco(cat + "/busco_primary"), allo=busco(cat + "/busco_alliso"),
+                   brk=busco(bbusco), italic=it,
+                   tpg=gmc(cat + "/gm_compare.tsv", "gene_miner_isoforms_per_gene"),
+                   ref_tpg=gmc(cat + "/gm_compare.tsv", "reference_isoforms_per_gene"),
+                   brk_tpg=gmc(REV + "/braker/" + BRK_TSV[name] + ".tsv", "gene_miner_isoforms_per_gene"))
+    print(name, G[name])
 refs = [('rice RefSeq',8.87e9,99.2), ('soybean NCBI',1.069e10,99.3)]
 GREEN='#2e7d32'; RED='#c0392b'; BLUE='#1f6fb2'
 fig=plt.figure(figsize=(13.4,5.8))
@@ -34,7 +55,7 @@ for ax in (axL,axR):
     ax.axhline(99.0,ls=':',color=BLUE,lw=1,zorder=0)
     ax.set_ylim(75,101)
 # left = the four genomes, linear zoom so they separate
-axL.set_xlim(0.78e8,1.52e8)
+axL.set_xlim(1.60e8,3.00e8)
 axL.set_xticks([]);
 transL=blended_transform_factory(axL.transData,axL.transAxes)
 def readfmt(r):
@@ -63,7 +84,7 @@ axL.plot([1-d,1+d],[-d,d],**kw); axL.plot([1-d,1+d],[1-d,1+d],**kw)
 kw=dict(transform=axR.transAxes,color='k',clip_on=False,lw=1.1)
 axR.plot([-d*3.2,d*3.2],[-d,d],**kw); axR.plot([-d*3.2,d*3.2],[1-d,1+d],**kw)
 # ceiling label
-axL.text(0.80e8,100.3,'≈ 99% curated-reference ceiling',color=BLUE,fontsize=8.5,ha='left')
+axL.text(1.63e8,100.3,'≈ 99% curated-reference ceiling',color=BLUE,fontsize=8.5,ha='left')
 axL.set_ylabel('BUSCO completeness (% complete)',fontsize=10)
 axL.set_title('a',loc='left',fontweight='bold',fontsize=13)
 axL.legend(handles=[
@@ -72,11 +93,11 @@ axL.legend(handles=[
     Line2D([0],[0],marker='v',color='w',mfc='none',mec=RED,mew=1.8,ms=10,label='BRAKER3 (same inputs)'),
     Line2D([0],[0],marker='D',color='w',mfc=BLUE,ms=11,label='Curated reference')],
     fontsize=8.3,loc='lower left',bbox_to_anchor=(0.26,0.015),frameon=True,framealpha=0.95)
-fig.text(0.30,0.008,'RNA-seq reads used for annotation',fontsize=10,ha='center')
+fig.text(0.30,0.002,'RNA-seq reads used for annotation',fontsize=10,ha='center')
 for s in ('top','right'): axb.spines[s].set_visible(False)
 # ===== Panel b =====
 genomes=['rice','soybean','D. melanogaster','C. elegans']
-gm=[1.89,1.24,1.69,1.74]; brk=[1.20,1.14,1.28,1.32]; ref=[1.19,1.58,2.21,1.40]
+gm=[G[g]['tpg'] for g in genomes]; brk=[G[g]['brk_tpg'] for g in genomes]; ref=[G[g]['ref_tpg'] for g in genomes]
 x=np.arange(len(genomes)); w=0.26
 b1=axb.bar(x-w,gm,w,color=GREEN,label='Gene-Miner')
 b2=axb.bar(x,brk,w,color=RED,label='BRAKER3 (same reads)')
@@ -85,12 +106,13 @@ for bars,vals in ((b1,gm),(b2,brk),(b3,ref)):
     for bar,v in zip(bars,vals):
         axb.text(bar.get_x()+bar.get_width()/2,v+0.03,f'{v:.2f}',ha='center',fontsize=8)
 axb.axhline(1.0,ls=':',color='#888',lw=1)
-axb.text(3.48,1.03,'1 isoform / gene',fontsize=8.5,color='#666',ha='right',va='bottom')
 axb.set_xticks(x); axb.set_xticklabels([g if ' ' not in g else '$\\it{%s}$'%g.replace(' ','\\ ') for g in genomes],fontsize=9)
 axb.set_ylabel('Transcripts per gene',fontsize=10); axb.set_ylim(0,2.5)
-axb.legend(fontsize=8.5,loc='upper left',frameon=True)
+h, l = axb.get_legend_handles_labels()
+h.append(Line2D([0],[0],ls=':',color='#888',lw=1)); l.append('one transcript per gene')
+axb.legend(h, l, fontsize=8.5,loc='upper left',frameon=True)
 axb.set_title('b',loc='left',fontweight='bold',fontsize=13)
-plt.subplots_adjust(left=0.06,right=0.985,top=0.94,bottom=0.19)
+plt.subplots_adjust(left=0.06,right=0.985,top=0.94,bottom=0.22)
 # clean '~100x more evidence' arrow spanning the break, in figure coords
 posL=axL.get_position(); posR=axR.get_position()
 ax0=posL.x0+0.62*(posL.x1-posL.x0)   # over the genome cluster
@@ -98,6 +120,7 @@ ax1=posR.x0+0.55*(posR.x1-posR.x0)   # over the curated refs
 ay=posL.y0+0.40*(posL.y1-posL.y0)
 fig.add_artist(plt.matplotlib.patches.FancyArrowPatch((ax0,ay),(ax1,ay),
     transform=fig.transFigure,arrowstyle='<->',mutation_scale=14,color='#333',lw=1.3))
-fig.text((ax0+ax1)/2,ay+0.02,'~100× more sequencing evidence',ha='center',fontsize=9.3,color='#333')
-out='/tmp/fig4_new.png'
+fig.text((ax0+ax1)/2,ay+0.02,'~40–60× more sequencing evidence',ha='center',fontsize=9.3,color='#333')
+import sys
+out = sys.argv[1] if len(sys.argv) > 1 else '/tmp/fig4_new.png'
 plt.savefig(out,dpi=160); print("done",out)

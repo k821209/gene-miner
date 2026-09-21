@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
@@ -9,12 +10,28 @@ try:
 except Exception:
     EQ = None
 GREEN,BLUE,ORANGE='#4e9a5f','#5b9bd5','#e8983a'
-P = {
- 'a': dict(crop='rice', total='20,717', circ='18,401', other='2,316',
-           subsets=(203,382,639,742,240,1590,14605), iso='15,687', exon='17,216', cds='17,177'),
- 'b': dict(crop='soybean', total='21,639', circ='9,213', other='12,426',
-           subsets=(165,604,558,1404,98,2279,4105), iso='4,976', exon='7,546', cds='7,886'),
-}
+# Counts are read from revised_features.py output (representative-transcript unit),
+# so the figure cannot drift from the tables: pass the two files on the command line.
+import sys
+def load(path, crop):
+    txt = open(path).read()
+    rep = txt.split("-- representative")[1].split("-- aggregate")[0]
+    total = int(re.search(r"revised_loci\t(\d+)", txt).group(1))
+    v = {tuple(x == "True" for x in k.split(", ")): int(n)
+         for k, n in re.findall(r"\((True|False, (?:True|False), (?:True|False))\):(\d+)", rep.replace("(True", "(True").replace("(False", "(False"))}
+    v = {}
+    for k, n in re.findall(r"\(((?:True|False), (?:True|False), (?:True|False))\):(\d+)", rep):
+        v[tuple(x == "True" for x in k.split(", "))] = int(n)
+    T, F = True, False
+    sub = (v.get((T,F,F),0), v.get((F,T,F),0), v.get((T,T,F),0), v.get((F,F,T),0),
+           v.get((T,F,T),0), v.get((F,T,T),0), v.get((T,T,T),0))
+    other = v.get((F,F,F),0)
+    iso = sum(n for k,n in v.items() if k[0]); exon = sum(n for k,n in v.items() if k[1]); cds = sum(n for k,n in v.items() if k[2])
+    f = lambda x: f"{x:,}"
+    return dict(crop=crop, total=f(total), circ=f(total-other), other=f(other), subsets=sub,
+                iso=f(iso), exon=f(exon), cds=f(cds))
+P = {"a": load(sys.argv[1], "rice"), "b": load(sys.argv[2], "soybean")}
+OUT = sys.argv[3] if len(sys.argv) > 3 else "/tmp/fig2_new"
 fig,axes=plt.subplots(1,2,figsize=(13,6.8))
 for key,ax in zip(('a','b'),axes):
     d=P[key]
@@ -49,5 +66,5 @@ for key,ax in zip(('a','b'),axes):
     ax.text(0.05,0.065,'revised in\nother ways', transform=ax.transAxes, fontsize=9, color='#555', va='top')
     ax.text(-0.02,1.10,key, transform=ax.transAxes, fontsize=15, fontweight='bold')
 plt.subplots_adjust(wspace=0.06,left=0.02,right=0.98,top=0.95,bottom=0.02)
-plt.savefig('/tmp/fig2_new.png',dpi=150,bbox_inches='tight'); plt.savefig('/tmp/fig2_new.svg',bbox_inches='tight')
+plt.savefig(OUT + '.png', dpi=150, bbox_inches='tight'); plt.savefig(OUT + '.svg', bbox_inches='tight')
 print("done")
