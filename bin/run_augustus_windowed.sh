@@ -39,10 +39,18 @@ run_one(){
   # some shipped species files (e.g. rice) set sample=0, which scores every gene 1 and
   # silently disables the confidence filter in build_union.py.
   augustus --species="$SP" --strand=both --genemodel=complete --gff3=on --UTR=off --sample=100 \
-    --predictionStart="$s" --predictionEnd="$e" "$fa" > "out/${b}_${s}.gff3" 2>/dev/null
+    --predictionStart="$s" --predictionEnd="$e" "$fa" > "out/${b}_${s}.gff3" 2>> augustus_err.log
 }
 export -f run_one; export SP
-xargs -P "$THREADS" -L1 bash -c 'run_one "$@"' _ < jobs.txt
+: > augustus_err.log
+xargs -P "$THREADS" -L1 bash -c 'run_one "$@"' _ < jobs.txt || true
+# Every window empty means AUGUSTUS itself failed (a broken env or an unknown
+# species), not that the genome has no genes: say so instead of merging nothing.
+if ! find out -name '*.gff3' -size +0c | grep -q .; then
+  echo "ERROR: AUGUSTUS produced no output for any of $(wc -l < jobs.txt) windows (species=$SP)" >&2
+  tail -5 augustus_err.log >&2
+  exit 1
+fi
 
 # merge; prefix gene/transcript IDs per (sequence,window) to keep them unique
 : > augustus_raw.gff3

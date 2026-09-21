@@ -29,11 +29,31 @@ if [ -z "$LIB" ]; then
   LIB=$OUT/$(basename "$GENOME").repeatlib.fa
   if [ ! -s "$LIB" ]; then
     BuildDatabase -name "$OUT/rmdb" "$GENOME" > "$OUT/builddb.log" 2>&1
+    # RepeatModeler >= 2.0.3 takes -threads; older builds take -pa (in units of 4 cores).
+    if RepeatModeler -h 2>&1 | grep -q -- "-threads"; then
+      RM_CPU="-threads $((PA*4))"
+    else
+      RM_CPU="-pa $PA"
+    fi
     # Run inside $OUT so both the RM_* work dir AND rmdb-families.fa land there.
-    ( cd "$OUT" && RepeatModeler -database rmdb -threads $((PA*4)) > repeatmodeler.log 2>&1 )
+    ( cd "$OUT" && RepeatModeler -database rmdb $RM_CPU > repeatmodeler.log 2>&1 )
     # RepeatModeler 2.x writes <db>-families.fa; 1.x writes RM_*/consensi.fa.classified.
     SRC=$(ls -t "$OUT"/rmdb-families.fa "$OUT"/RM_*/consensi.fa.classified 2>/dev/null | head -1)
-    { [ -n "$SRC" ] && [ -s "$SRC" ]; } || { echo "ERROR: RepeatModeler produced no library"; exit 1; }
+    if [ -z "$SRC" ] || [ ! -s "$SRC" ]; then
+      # A repeat-poor genome (yeast, many microbial assemblies) legitimately yields
+      # no families. That is a result, not a failure: emit an unmasked genome and an
+      # empty RepeatMasker .out, so the TE filter simply removes nothing downstream.
+      if grep -q "0 families found" "$OUT/repeatmodeler.log" 2>/dev/null; then
+        echo "[$(date +%T)] WARNING: RepeatModeler found no repeat families — continuing unmasked"
+        G=$(basename "$GENOME")
+        cp "$GENOME" "$OUT/$G.masked"
+        printf '   SW   perc perc perc  query      position in query           matching       repeat              position in  repeat\n score   div. del. ins.  sequence   begin  end    (left)   repeat         class/family    begin  end (left)   ID\n\n' > "$OUT/$G.out"
+        exit 0
+      fi
+      echo "ERROR: RepeatModeler produced no library — see $OUT/repeatmodeler.log"
+      tail -5 "$OUT/repeatmodeler.log" 2>/dev/null
+      exit 1
+    fi
     cp "$SRC" "$LIB"
   fi
 fi

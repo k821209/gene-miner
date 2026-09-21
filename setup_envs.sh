@@ -15,12 +15,19 @@
 # python3 from conda. Skip it with:  GM_SKIP_GENEMARK=1 bash setup_envs.sh
 set -euo pipefail
 
-CH="-c bioconda -c conda-forge"
+# conda-forge FIRST and strict priority: mixing in the `defaults` channel pulls an
+# older boost, and the bioconda augustus build then cannot load libboost_iostreams.
+CH="--strict-channel-priority --override-channels -c conda-forge -c bioconda"
 SOLVER=$(command -v mamba || command -v conda)
 [ -n "$SOLVER" ] || { echo "ERROR: conda/mamba not found on PATH"; exit 1; }
 echo "[setup] using: $SOLVER"
 
-create () { echo "[setup] creating env '$1'"; "$SOLVER" create -y -n "$1" $CH "${@:2}"; }
+GM_CONDA_BASE="${GM_CONDA_BASE:-$HOME/miniconda3}"
+ENVS="$GM_CONDA_BASE/envs"
+mkdir -p "$ENVS"
+echo "[setup] envs go to: $ENVS"
+
+create () { echo "[setup] creating env '$1' in $ENVS"; "$SOLVER" create -y -p "$ENVS/$1" $CH "${@:2}"; }
 
 create annot     hisat2 stringtie transdecoder samtools gffread
 create augustus  augustus diamond
@@ -37,8 +44,7 @@ create busco     busco
 echo "[setup] configuring RepeatMasker Dfam library (~60 MB download)"
 # Derive the conda base from $SOLVER's own location (works for conda or mamba,
 # and avoids `mamba info --base`, which prints a labelled line rather than a path).
-CB="$(dirname "$(dirname "$SOLVER")")"
-FAMDIR="$CB/envs/rmod/share/RepeatMasker/Libraries/famdb"
+FAMDIR="$ENVS/rmod/share/RepeatMasker/Libraries/famdb"
 mkdir -p "$FAMDIR"
 if ! ls "$FAMDIR"/*.h5 >/dev/null 2>&1; then
   ( cd "$FAMDIR" \
@@ -46,7 +52,7 @@ if ! ls "$FAMDIR"/*.h5 >/dev/null 2>&1; then
     && gunzip -f dfam40.0.h5.gz ) \
     || echo "[setup] WARN: Dfam download failed — fetch dfam40.0.h5 into $FAMDIR manually"
 fi
-CONF="$(ls "$CB"/envs/rmod/share/famdb-*/famdb.conf 2>/dev/null | head -1 || true)"
+CONF="$(ls "$ENVS"/rmod/share/famdb-*/famdb.conf 2>/dev/null | head -1 || true)"
 if [ -n "$CONF" ]; then
   if grep -q '^FAMDB_DATA_DIR' "$CONF"; then
     sed -i "s|^FAMDB_DATA_DIR.*|FAMDB_DATA_DIR = $FAMDIR|" "$CONF"
@@ -75,10 +81,10 @@ else
   # Run cpanm with envs/genemark FIRST on PATH: it needs that env's own `make`
   # (and perl) to build the modules — calling it by absolute path alone leaves
   # `make` off PATH and the build fails.
-  PATH="$CB/envs/genemark/bin:$PATH" "$CB/envs/genemark/bin/cpanm" \
+  PATH="$ENVS/genemark/bin:$PATH" "$ENVS/genemark/bin/cpanm" \
     --notest Math::Utils Statistics::LineFit \
     || echo "[setup] WARN: cpanm of Math::Utils/Statistics::LineFit failed — install them by hand into envs/genemark"
-  GM_ETP_DIR="${GENEMARK_ETP_DIR:-$CB/opt/GeneMark-ETP}"
+  GM_ETP_DIR="${GENEMARK_ETP_DIR:-$GM_CONDA_BASE/opt/GeneMark-ETP}"
   if [ ! -x "$GM_ETP_DIR/bin/gmetp.pl" ]; then
     mkdir -p "$(dirname "$GM_ETP_DIR")"
     git clone --depth 1 https://github.com/gatech-genemark/GeneMark-ETP "$GM_ETP_DIR" \
