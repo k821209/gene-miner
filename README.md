@@ -100,6 +100,20 @@ GeneMark-ETP (<https://github.com/gatech-genemark/GeneMark-ETP>) is CC BY-NC-SA
 install: **41,534 genes, poales BUSCO 96.5%**, reproducing the paper's
 three-stream headline.
 
+**Clean-install check (2026-09).** This repository was cloned on a machine that
+had produced none of the paper's results, the envs were built with
+`setup_envs.sh` into a separate prefix, and two genomes that are not in the paper
+were annotated from one freshly downloaded SRA run each:
+
+| Run | Input | Result |
+|---|---|---|
+| two-stream | *S. cerevisiae* R64 + SRR13978644 | 27 min, 4,914 genes, BUSCO 90.3% (saccharomycetes) |
+| three-stream | *A. nidulans* ASM1142v1 + SRR10224419 | 1 h 23 min, 10,179 genes, BUSCO 97.1% (eurotiales) |
+
+GeneMark-ETP itself aborts on *S. cerevisiae* (`negative argument in LOG
+function`) during its own model estimation, which is why the three-stream check
+used *A. nidulans*; use `--run_genemark false` on intron-poor genomes.
+
 **External databases** (not installed by conda; stage these before a full run):
 
 - **RepeatMasker library (Dfam).** `setup_envs.sh` downloads the Dfam root
@@ -110,6 +124,12 @@ three-stream headline.
   = famdb 3.x = RepeatMasker 4.2.x); if your `repeatmasker` build differs, fetch a
   matching partition from <https://www.dfam.org/releases/> and set
   `FAMDB_DATA_DIR` in the env's `share/famdb-*/famdb.conf`.
+  The root partition holds **no clade-specific families**, so `RepeatMasker
+  -species <clade>` run by hand fails with *"applicable curated families ... no
+  components/partitions present"*. The pipeline never uses `-species` (it masks
+  with `-lib`, either your `--repeat_lib` or the RepeatModeler library it builds),
+  so this only bites if you call RepeatMasker yourself. For that, download the
+  clade partition with `FamDB/utils/download_famdb.py` into the same directory.
 - **eggNOG-mapper DB (~50 GB).** `run_eggnog.sh` downloads it on first run
   (from <http://eggnog6.embl.de/download/>), or run `download_eggnog_data.py`, or
   set `$EGGNOG_DB` to an existing copy.
@@ -123,7 +143,9 @@ three-stream headline.
   `hmmpress` it and pass `--pfam`.
 
 The pipeline finds the envs under `$HOME/miniconda3/envs` by default; point
-elsewhere with `export GM_CONDA_BASE=/path/to/miniconda`. `setup_envs.sh`
+elsewhere with `export GM_CONDA_BASE=/path/to/miniconda`, which `setup_envs.sh`
+also honours — it creates each env by prefix under `$GM_CONDA_BASE/envs`, so a
+test install cannot overwrite envs of the same name you already have. `setup_envs.sh`
 installs the latest bioconda builds; pin versions (`conda env export`) if you
 need bit-level reproducibility.
 
@@ -188,6 +210,13 @@ variable controls where the repeat library comes from:
 - **`REPEAT_LIB=<lib.fa>`** — reuse an existing/curated library and skip
   RepeatModeler (fast; also the right choice when comparing TE content
   *between* genomes, which needs the same `-lib` on both).
+
+On a repeat-poor genome RepeatModeler can finish with **no families at all**
+(*S. cerevisiae* and *A. nidulans* both do). That is a result, not an error: the
+run continues with the genome unmasked and an empty RepeatMasker `.out`, logging
+`WARNING: RepeatModeler found no repeat families`, and the TE filter then removes
+nothing. Supply `--repeat_lib` if you would rather mask against a curated
+library.
 
 TE-derived genes are then flagged purely by **RepeatMasker CDS overlap**
 (`TE_THRESH`, default 0.5 of the CDS in interspersed repeats) — there is no
