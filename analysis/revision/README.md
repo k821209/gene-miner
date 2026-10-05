@@ -19,6 +19,7 @@ are those of the revised manuscript.
 | `run_evm_rice.sh`, `run_evm_h100.sh`, `evm_te_filter_h100.sh`, `evm_busco_h100.sh` | EVidenceModeler comparison (STable 14) |
 | `revised_features.py`, `isoform_origin.py`, `novel_by_stream.py` | revision types and the origin of added models (STables 16, 21) |
 | `contamination.sh`, `organellar.sh` | non-target taxa and NUMT/NUPT screen (STable 22) |
+| `pick_boundary_examples.py`, `plot_boundary_error.py` | the fusion and split examples drawn in Supplementary Figure 1 |
 | `heldout_novel_introns.py` | held-out confirmation of the introns the reference lacks (Results) |
 | `wild_gene_overlap.py`, `wild_overlap_run.sh` | whether the sampled loci fall on genes the wild relatives' own annotations record (Results) |
 | `codon_usage.py` | codon usage by comparison class and tier against an intergenic-ORF null (Results) |
