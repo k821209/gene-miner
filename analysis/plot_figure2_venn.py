@@ -63,7 +63,7 @@ for key,ax in zip(('a','b'),axes):
     ax.text(0.055,0.918,f"circles = {d['circ']} larger than the reference in ≥ 1 axis",
             transform=ax.transAxes, fontsize=9.5, color='#555', va='top')
     ax.text(0.05,0.11,d['other'], transform=ax.transAxes, fontsize=14, fontweight='bold', color='#333')
-    ax.text(0.05,0.065,'revised in\nother ways', transform=ax.transAxes, fontsize=9, color='#555', va='top')
+    ax.text(0.05,0.065,'not larger on any axis\n(smaller, or same size)', transform=ax.transAxes, fontsize=9, color='#555', va='top')
     ax.text(-0.02,1.10,key, transform=ax.transAxes, fontsize=15, fontweight='bold')
 plt.subplots_adjust(wspace=0.06,left=0.02,right=0.98,top=0.95,bottom=0.02)
 plt.savefig(OUT + '.png', dpi=150, bbox_inches='tight'); plt.savefig(OUT + '.svg', bbox_inches='tight')
