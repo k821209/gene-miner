@@ -169,6 +169,7 @@ nextflow run main.nf -c nextflow.config \
   --proteome  uniprot_sprot.fasta \
   --augustus_species rice \      # native AUGUSTUS model; omit / 'auto' => BUSCO-train one
   --repeat_lib repeats.fa \      # supplied library;       omit          => de-novo RepeatModeler
+  --masked_genome masked.fa --masked_rmout rm.out \  # already masked? skip RepeatMasker/RepeatModeler entirely
   --run_genemark true \          # add GeneMark-ETP as a 3rd ab-initio stream
   --busco_lineage poales_odb10 \
   --outdir gm_out
@@ -180,6 +181,7 @@ The workflow's branch points are parameters (all defaults in `nextflow.config`):
 |---|---|---|
 | AUGUSTUS model | `--augustus_species` | a native model name (e.g. `rice`) — or omit / `auto` to **BUSCO-train** one for a new clade |
 | Repeat library | `--repeat_lib` | a supplied `.fa` (fast) — or omit to build one **de novo** with RepeatModeler (slow) |
+| Already-masked genome | `--masked_genome` + `--masked_rmout` | supply both to skip RepeatMasker **and** RepeatModeler entirely — `--repeat_lib` alone still runs RepeatMasker |
 | GeneMark-ETP 3rd stream | `--run_genemark` | `true` / `false` (or pass a precomputed `--genemark_gtf`) |
 | QC filters | `--run_qc` | `true` / `false` (stop at the raw union if false) |
 
@@ -210,6 +212,14 @@ variable controls where the repeat library comes from:
 - **`REPEAT_LIB=<lib.fa>`** — reuse an existing/curated library and skip
   RepeatModeler (fast; also the right choice when comparing TE content
   *between* genomes, which needs the same `-lib` on both).
+
+Both of the above still run **RepeatMasker itself** on every invocation — a
+supplied `--repeat_lib` only skips the de-novo RepeatModeler library-building
+step, nothing more. To skip RepeatMasker/RepeatModeler **entirely** because the
+genome is already soft-masked, supply both `--masked_genome=<genome.fa>` and
+`--masked_rmout=<rm.out>` (the matching RepeatMasker `.out`, needed by the TE QC
+filter) to `main.nf`; `MASK_GENOME` is then skipped and every downstream process
+consumes the files you supplied directly.
 
 On a repeat-poor genome RepeatModeler can finish with **no families at all**
 (*S. cerevisiae* and *A. nidulans* both do). That is a result, not an error: the
