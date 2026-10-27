@@ -231,8 +231,13 @@ reads as "no transposable-element-derived genes here"; a hard-masked (N-replaced
 file just lowers completeness a little. `VALIDATE_MASKED_INPUT` (`bin/validate_masked_input.py`)
 runs before anything consumes these files and fails fast, naming the offending
 seqid(s), if: the seqid sets or per-seqid lengths of `--genome` and `--masked_genome`
-disagree; a `--masked_rmout` seqid is absent from `--genome`; or `--masked_genome`
-is mostly `N` with almost no lower-case, i.e. hard- rather than soft-masked.
+disagree; a `--masked_rmout` seqid is absent from `--genome`; a `--masked_rmout` seqid
+shares a name with a `--genome` seqid but implies a different chromosome length from its
+own coordinates (RepeatMasker's query `(left)` column is `seqlen - end`, so `end + left`
+reconstructs the assembly the `.out` was generated against — this catches a same-named
+seqid from a different assembly version, which a seqid-name check alone cannot); or
+`--masked_genome` has too little lower-case to be soft-masked, whether because it is
+hard-masked (`N` instead of lower-case) or because it was never masked at all.
 
 On a repeat-poor genome RepeatModeler can finish with **no families at all**
 (*S. cerevisiae* and *A. nidulans* both do). That is a result, not an error: the
