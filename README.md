@@ -181,7 +181,7 @@ The workflow's branch points are parameters (all defaults in `nextflow.config`):
 |---|---|---|
 | AUGUSTUS model | `--augustus_species` | a native model name (e.g. `rice`) — or omit / `auto` to **BUSCO-train** one for a new clade |
 | Repeat library | `--repeat_lib` | a supplied `.fa` (fast) — or omit to build one **de novo** with RepeatModeler (slow) |
-| Already-masked genome | `--masked_genome` + `--masked_rmout` | supply both to skip RepeatMasker **and** RepeatModeler entirely — `--repeat_lib` alone still runs RepeatMasker |
+| Already-masked genome | `--masked_genome` + `--masked_rmout` | supply both to skip RepeatMasker **and** RepeatModeler entirely — `--repeat_lib` alone still runs RepeatMasker. Checked for seqid/length agreement with `--genome` and for soft- vs hard-masking before use; see below. |
 | GeneMark-ETP 3rd stream | `--run_genemark` | `true` / `false` (or pass a precomputed `--genemark_gtf`) |
 | QC filters | `--run_qc` | `true` / `false` (stop at the raw union if false) |
 
@@ -220,6 +220,19 @@ genome is already soft-masked, supply both `--masked_genome=<genome.fa>` and
 `--masked_rmout=<rm.out>` (the matching RepeatMasker `.out`, needed by the TE QC
 filter) to `main.nf`; `MASK_GENOME` is then skipped and every downstream process
 consumes the files you supplied directly.
+
+Because this path injects two files from outside the pipeline rather than deriving
+the masked genome from `--genome` itself, coordinate agreement is no longer
+structural — it is the caller's responsibility, and a mismatch would otherwise fail
+silently: different seqids/assembly versions still produce plausible gene counts and
+BUSCO scores (AUGUSTUS and HISAT2/StringTie simply predict on two different
+coordinate systems that `BUILD_UNION` merges anyway); a `.out` with the wrong seqids
+reads as "no transposable-element-derived genes here"; a hard-masked (N-replaced)
+file just lowers completeness a little. `VALIDATE_MASKED_INPUT` (`bin/validate_masked_input.py`)
+runs before anything consumes these files and fails fast, naming the offending
+seqid(s), if: the seqid sets or per-seqid lengths of `--genome` and `--masked_genome`
+disagree; a `--masked_rmout` seqid is absent from `--genome`; or `--masked_genome`
+is mostly `N` with almost no lower-case, i.e. hard- rather than soft-masked.
 
 On a repeat-poor genome RepeatModeler can finish with **no families at all**
 (*S. cerevisiae* and *A. nidulans* both do). That is a result, not an error: the

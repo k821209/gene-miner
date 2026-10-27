@@ -15,6 +15,31 @@ def asBool(v){
   return v?.toString()?.toLowerCase() in ['true','1','yes','on']
 }
 
+process VALIDATE_MASKED_INPUT {
+  // Guards the --masked_genome/--masked_rmout injection path. When MASK_GENOME
+  // derives the masked genome from `genome` itself, coordinate agreement is
+  // structural; here the caller supplies both files from elsewhere, and a
+  // seqid/assembly mismatch or a hard- instead of soft-masked file would
+  // otherwise fail silently downstream (plausible gene counts and BUSCO
+  // scores from two coordinate systems merged by BUILD_UNION; an empty
+  // TE_FILTER overlap that reads as "no TE-derived genes"). See
+  // bin/validate_masked_input.py for exactly what it checks.
+  tag "coordinate check"
+  input:
+    path genome
+    path masked_genome
+    path masked_rmout
+  output:
+    path "masked_genome.checked.fa", emit: fasta
+    path "masked_rmout.checked.out", emit: rmout
+  script:
+  """
+  python3 ${projectDir}/bin/validate_masked_input.py ${genome} ${masked_genome} ${masked_rmout}
+  cp ${masked_genome} masked_genome.checked.fa
+  cp ${masked_rmout} masked_rmout.checked.out
+  """
+}
+
 process MASK_GENOME {
   tag "RepeatModeler/RepeatMasker"
   publishDir "${params.outdir}/mask", mode: "copy"
@@ -291,8 +316,9 @@ workflow {
   // inside run_repeatmasker.sh; RepeatMasker itself still runs unless the
   // genome is injected here.
   if( params.masked_genome ) {
-    masked_fa    = Channel.value(file(params.masked_genome))
-    masked_rmout = Channel.value(file(reqd(params.masked_rmout,"masked_rmout")))
+    VALIDATE_MASKED_INPUT(genome, file(params.masked_genome), file(reqd(params.masked_rmout,"masked_rmout")))
+    masked_fa    = VALIDATE_MASKED_INPUT.out.fasta
+    masked_rmout = VALIDATE_MASKED_INPUT.out.rmout
   } else {
     MASK_GENOME(genome)
     masked_fa    = MASK_GENOME.out.fasta
