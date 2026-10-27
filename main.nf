@@ -285,7 +285,19 @@ workflow {
   proteome = file(reqd(params.proteome,"proteome"))
   reads_ch = Channel.fromFilePairs(reqd(params.reads,"reads"))
 
-  MASK_GENOME(genome)
+  // A caller who already has a soft-masked genome (and its RepeatMasker .out,
+  // needed by TE_FILTER) can supply both and skip RepeatMasker/RepeatModeler
+  // entirely. --repeat_lib only skips de-novo RepeatModeler library building
+  // inside run_repeatmasker.sh; RepeatMasker itself still runs unless the
+  // genome is injected here.
+  if( params.masked_genome ) {
+    masked_fa    = Channel.value(file(params.masked_genome))
+    masked_rmout = Channel.value(file(reqd(params.masked_rmout,"masked_rmout")))
+  } else {
+    MASK_GENOME(genome)
+    masked_fa    = MASK_GENOME.out.fasta
+    masked_rmout = MASK_GENOME.out.rmout
+  }
   HISAT2_BUILD(genome)
   HISAT2_ALIGN(reads_ch, HISAT2_BUILD.out.idx.collect())
   STRINGTIE(HISAT2_ALIGN.out.bam)
@@ -296,14 +308,14 @@ workflow {
   def use_busco = !params.augustus_species || params.augustus_species == 'auto'
   aug_cfg = use_busco ? BUSCO_TRAIN(genome).config : file("${params.env_augustus}/config")
   aug_sp  = use_busco ? 'auto' : params.augustus_species
-  AUGUSTUS_PREDICT(MASK_GENOME.out.fasta, aug_cfg, aug_sp)
+  AUGUSTUS_PREDICT(masked_fa, aug_cfg, aug_sp)
 
   // optional 3rd ab-initio stream: GeneMark-ETP (precomputed gtf, or run in-pipeline)
   no_gm = file("${projectDir}/assets/NO_GENEMARK")
   if( params.genemark_gtf ) {
     gm_ch = Channel.value(file(params.genemark_gtf))
   } else if( asBool(params.run_genemark) ) {
-    GENEMARK_ETP(MASK_GENOME.out.fasta, HISAT2_ALIGN.out.bam.collect(), proteome)
+    GENEMARK_ETP(masked_fa, HISAT2_ALIGN.out.bam.collect(), proteome)
     gm_ch = GENEMARK_ETP.out.gtf
   } else {
     gm_ch = Channel.value(no_gm)
@@ -313,7 +325,7 @@ workflow {
   if( asBool(params.run_qc) ) {
     EGGNOG(BUILD_UNION.out.pep)
     FILTER_TAXONOMY(EGGNOG.out.ann, BUILD_UNION.out.gff, BUILD_UNION.out.pep)
-    TE_FILTER(MASK_GENOME.out.rmout, FILTER_TAXONOMY.out.gff, FILTER_TAXONOMY.out.pep)
+    TE_FILTER(masked_rmout, FILTER_TAXONOMY.out.gff, FILTER_TAXONOMY.out.pep)
     SPROT_HITS(TE_FILTER.out.pep, proteome)
     ANNOTATE_TIERS(TE_FILTER.out.gff, TRANSDECODER.out.gff, EGGNOG.out.ann, SPROT_HITS.out.hits)
     BUSCO(TE_FILTER.out.pep)
