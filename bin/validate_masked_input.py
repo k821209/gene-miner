@@ -114,12 +114,15 @@ def main():
     implied_len = {}       # seqid -> one reconstructed length already confirmed (for internal-consistency check)
     version_mismatches = []
     internal_mismatches = []
+    seen_version_mismatch = set()   # seqids already reported, so a bad assembly's 10M rows cost O(rows), not O(rows * mismatches)
+    seen_internal_mismatch = set()
     for seqid, end, left in rmout_rows(rmout_path):
         rm_ids.add(seqid)
         this_len = end + left
         if seqid in genome:
             g_len = genome[seqid][0]
-            if this_len != g_len and seqid not in [m.split()[0] for m in version_mismatches]:
+            if this_len != g_len and seqid not in seen_version_mismatch:
+                seen_version_mismatch.add(seqid)
                 version_mismatches.append(
                     f"{seqid} (a repeat at query {end} bp implies a {this_len} bp chromosome via "
                     f"end+left, but --genome's {seqid} is {g_len} bp)"
@@ -128,7 +131,8 @@ def main():
             prev = implied_len.get(seqid)
             if prev is None:
                 implied_len[seqid] = this_len
-            elif prev != this_len and seqid not in [m.split()[0] for m in internal_mismatches]:
+            elif prev != this_len and seqid not in seen_internal_mismatch:
+                seen_internal_mismatch.add(seqid)
                 internal_mismatches.append(f"{seqid} (rows imply both {prev} bp and {this_len} bp)")
 
     rm_unknown = sorted(rm_ids - set(genome))
