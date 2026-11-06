@@ -239,6 +239,18 @@ seqid from a different assembly version, which a seqid-name check alone cannot);
 `--masked_genome` has too little lower-case to be soft-masked, whether because it is
 hard-masked (`N` instead of lower-case) or because it was never masked at all.
 
+One field in a hand-built `--masked_rmout` decides results and is easy to leave
+empty: **column 11, the repeat class.** `bin/te_filter_genes.py` excludes
+`Simple_repeat`, `Low_complexity` and `Satellite` intervals from the
+interspersed-repeat set, on the grounds that real genes carry microsatellites and
+low-complexity stretches inside their CDS. A `.out` converted from a published
+repeat GFF typically loses that column — RepeatMasker writes GFF2 attributes as
+`Target "Motif:(AT)n"`, not `Target=`, so a GFF3-style parser labels every
+interval alike. With the column unset the filter counts every simple repeat as a
+transposable element and drops genes whose CDS overlaps one, reporting nothing
+but a lower gene count. `validate_masked_input.py` warns when no row in the file
+carries one of those classes, which on a real genome does not happen.
+
 On a repeat-poor genome RepeatModeler can finish with **no families at all**
 (*S. cerevisiae* and *A. nidulans* both do). That is a result, not an error: the
 run continues with the genome unmasked and an empty RepeatMasker `.out`, logging

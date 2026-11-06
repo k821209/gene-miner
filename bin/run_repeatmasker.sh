@@ -11,7 +11,8 @@ GENOME=${1:?usage: run_repeatmasker.sh genome.fa [repeat_lib.fa] [out_dir]}
 LIB=${2:-}
 OUT=${3:-rm_out}
 PA=${PA:-9}                          # x4 threads each = 36
-ENV=${REPEAT_ENV:-aleseq}            # conda env that owns RepeatMasker/RepeatModeler
+ENV=${REPEAT_ENV:-aleseq}            # conda env owning RepeatMasker/RepeatModeler;
+                                     # a NAME under the conda base, or a full prefix path
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)              # absolutise so the RepeatModeler subshell cd is safe
 GENOME=$(readlink -f "$GENOME")
@@ -22,7 +23,16 @@ GENOME=$(readlink -f "$GENOME")
 CONDA_BASE="$(conda info --base 2>/dev/null || echo "$HOME/miniconda3")"
 # shellcheck disable=SC1091
 source "$CONDA_BASE/etc/profile.d/conda.sh"
-conda activate "$ENV"
+# $ENV may be a bare env name or a full prefix path. `conda activate` accepts
+# both, but a bare name is only resolvable under the DEFAULT envs dir -- so an
+# env created elsewhere (GM_CONDA_BASE, or any --env_rmod outside the base)
+# must be activated by prefix or this silently fails at the masking step.
+if ! conda activate "$ENV" 2>/dev/null; then
+  echo "ERROR: could not 'conda activate $ENV'" >&2
+  echo "       REPEAT_ENV must be an env name under $CONDA_BASE/envs, or a full" >&2
+  echo "       prefix path to the env directory." >&2
+  exit 1
+fi
 
 if [ -z "$LIB" ]; then
   echo "[$(date +%T)] no library given — de-novo RepeatModeler (slow, hours)"
@@ -36,21 +46,30 @@ if [ -z "$LIB" ]; then
       RM_CPU="-pa $PA"
     fi
     # Run inside $OUT so both the RM_* work dir AND rmdb-families.fa land there.
+    # Keep the exit status: it is what separates "this genome has no repeat
+    # families" from "RepeatModeler broke", and those need opposite handling.
     ( cd "$OUT" && RepeatModeler -database rmdb $RM_CPU > repeatmodeler.log 2>&1 )
+    RM_RC=$?
     # RepeatModeler 2.x writes <db>-families.fa; 1.x writes RM_*/consensi.fa.classified.
     SRC=$(ls -t "$OUT"/rmdb-families.fa "$OUT"/RM_*/consensi.fa.classified 2>/dev/null | head -1)
     if [ -z "$SRC" ] || [ ! -s "$SRC" ]; then
       # A repeat-poor genome (yeast, many microbial assemblies) legitimately yields
       # no families. That is a result, not a failure: emit an unmasked genome and an
       # empty RepeatMasker .out, so the TE filter simply removes nothing downstream.
-      if grep -q "0 families found" "$OUT/repeatmodeler.log" 2>/dev/null; then
-        echo "[$(date +%T)] WARNING: RepeatModeler found no repeat families — continuing unmasked"
+      # Decide on the EXIT STATUS, not on a log phrase. "0 families found" is
+      # one wording among several (it varies with RepeatModeler version and with
+      # how early the search gives up), so matching it made a successful run on
+      # a repeat-poor genome exit 1 -- the opposite of what the branch is for.
+      # A non-zero status is a real failure and must stay fatal.
+      if [ "$RM_RC" -eq 0 ]; then
+        echo "[$(date +%T)] WARNING: RepeatModeler exited 0 with no library — treating this genome as repeat-free, continuing unmasked"
+        grep -i "families found\|no repeat" "$OUT/repeatmodeler.log" 2>/dev/null | tail -2
         G=$(basename "$GENOME")
         cp "$GENOME" "$OUT/$G.masked"
         printf '   SW   perc perc perc  query      position in query           matching       repeat              position in  repeat\n score   div. del. ins.  sequence   begin  end    (left)   repeat         class/family    begin  end (left)   ID\n\n' > "$OUT/$G.out"
         exit 0
       fi
-      echo "ERROR: RepeatModeler produced no library — see $OUT/repeatmodeler.log"
+      echo "ERROR: RepeatModeler failed (exit $RM_RC) — see $OUT/repeatmodeler.log"
       tail -5 "$OUT/repeatmodeler.log" 2>/dev/null
       exit 1
     fi

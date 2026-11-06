@@ -61,6 +61,36 @@ if [ -n "$CONF" ]; then
   fi
 fi
 
+# Verify, rather than assume. Downloading the root partition and writing
+# famdb.conf is not the same as having a usable library: the root partition can
+# land intact and still report 0 families, in which case famdb.py raises and
+# RepeatMasker dies at startup -- but setup has already printed success, so the
+# failure surfaces hours later inside MASK_GENOME. Check it here, where the
+# remedy is still in front of the person running setup.
+FAMDB_PY="$(ls "$ENVS"/rmod/share/famdb-*/famdb.py 2>/dev/null | head -1 || true)"
+DFAM_OK=0
+if [ -n "$FAMDB_PY" ] && [ -x "$ENVS/rmod/bin/python3" ]; then
+  FAM_INFO="$("$ENVS/rmod/bin/python3" "$FAMDB_PY" -i "$FAMDIR" info 2>&1 || true)"
+  FAM_N="$(printf '%s' "$FAM_INFO" | sed -n 's/^ *Families *: *//p' | tr -d ', ' | head -1)"
+  case "$FAM_N" in
+    ''|0) DFAM_OK=0 ;;
+    *)    DFAM_OK=1 ;;
+  esac
+fi
+if [ "$DFAM_OK" = "1" ]; then
+  echo "[setup] Dfam OK — $FAM_N families visible to RepeatMasker"
+else
+  DFAM_WARN="Dfam library in $FAMDIR is NOT usable (famdb reports no families).
+           RepeatMasker will abort at startup, so de-novo masking and any run
+           WITHOUT --masked_genome/--masked_rmout will fail in MASK_GENOME.
+           The root partition alone is not always sufficient: the partitions the
+           root declares must be present too. Fetch a matching set into
+           $FAMDIR (see https://www.dfam.org/releases/ and
+           FamDB/utils/download_famdb.py), or pin a repeatmasker build whose
+           bundled library generation you already have."
+  echo "[setup] WARN: $DFAM_WARN"
+fi
+
 # --- 3rd stream: GeneMark-ETP ---
 # GeneMark-ETP's gmetp.pl bundles GeneMark + ProtHint and its own static
 # bedtools/samtools/hisat2/diamond/stringtie/gffread under tools/, so the only

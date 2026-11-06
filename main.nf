@@ -51,7 +51,7 @@ process MASK_GENOME {
     path "rm.out",           emit: rmout
   script:
   """
-  REPEAT_ENV=${params.env_rmod.split('/')[-1]} PA=\$(( ${task.cpus} / 4 )) \
+  REPEAT_ENV=${params.env_rmod} PA=\$(( ${task.cpus} / 4 )) \
     bash ${projectDir}/bin/run_repeatmasker.sh ${genome} '${params.repeat_lib ?: ''}' rm_out
   cp rm_out/${genome}.masked genome.masked.fa
   cp rm_out/${genome}.out rm.out
