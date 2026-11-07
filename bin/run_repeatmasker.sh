@@ -39,12 +39,21 @@ if [ -z "$LIB" ]; then
   LIB=$OUT/$(basename "$GENOME").repeatlib.fa
   if [ ! -s "$LIB" ]; then
     BuildDatabase -name "$OUT/rmdb" "$GENOME" > "$OUT/builddb.log" 2>&1
-    # RepeatModeler >= 2.0.3 takes -threads; older builds take -pa (in units of 4 cores).
-    if RepeatModeler -h 2>&1 | grep -q -- "-threads"; then
+    # RepeatModeler >= 2.0.3 takes -threads; older builds take -pa (in units of
+    # 4 cores). Capture the help text FIRST: `RepeatModeler -h` prints its usage
+    # and exits 1, and under `set -o pipefail` (line 8) that non-zero status wins
+    # over grep's success -- so testing it inside a pipeline always picked the
+    # -pa branch, no matter what the build supports. RepeatModeler 2.0.8 rejects
+    # -pa outright ("The -pa parameter has been deprecated"), which made de-novo
+    # masking impossible; on an older build the wrong branch happened to work,
+    # which is why the detection could be dead code for this long.
+    RM_HELP=$(RepeatModeler -h 2>&1 || true)
+    if printf '%s' "$RM_HELP" | grep -q -- "-threads"; then
       RM_CPU="-threads $((PA*4))"
     else
       RM_CPU="-pa $PA"
     fi
+    echo "[$(date +%T)] RepeatModeler parallelism: $RM_CPU"
     # Run inside $OUT so both the RM_* work dir AND rmdb-families.fa land there.
     # Keep the exit status: it is what separates "this genome has no repeat
     # families" from "RepeatModeler broke", and those need opposite handling.
