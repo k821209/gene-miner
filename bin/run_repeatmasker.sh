@@ -19,8 +19,32 @@ GENOME=$(readlink -f "$GENOME")
 
 # RepeatMasker (conda) needs its env ACTIVATED to set REPEATMASKER_DIR etc.;
 # calling the binary directly fails with "REPEATMASKER_DIR does not exist".
-# Locate conda.sh portably (do not assume $HOME/miniconda3).
-CONDA_BASE="$(conda info --base 2>/dev/null || echo "$HOME/miniconda3")"
+#
+# Finding conda.sh: `conda info --base` only works when conda is already on
+# PATH, which it is not inside a Nextflow process, and the old fallback was the
+# literal guess $HOME/miniconda3. That guess is wrong for every install the
+# README actively recommends -- anything placed with GM_CONDA_BASE -- and the
+# failure arrives as `No such file or directory` for a conda.sh nobody asked
+# for. Derive the base from the env prefix instead: $ENV is normally
+# <base>/envs/<name>, so the base is two levels up. Fall back in order.
+CONDA_BASE=""
+case "$ENV" in
+  */envs/*) cand="${ENV%/envs/*}"; [ -r "$cand/etc/profile.d/conda.sh" ] && CONDA_BASE="$cand" ;;
+esac
+if [ -z "$CONDA_BASE" ] && [ -n "${GM_CONDA_BASE:-}" ] \
+   && [ -r "$GM_CONDA_BASE/etc/profile.d/conda.sh" ]; then CONDA_BASE="$GM_CONDA_BASE"; fi
+if [ -z "$CONDA_BASE" ]; then CONDA_BASE="$(conda info --base 2>/dev/null || true)"; fi
+if [ -z "$CONDA_BASE" ] || [ ! -r "$CONDA_BASE/etc/profile.d/conda.sh" ]; then
+  [ -r "$HOME/miniconda3/etc/profile.d/conda.sh" ] && CONDA_BASE="$HOME/miniconda3"
+fi
+if [ -z "$CONDA_BASE" ] || [ ! -r "$CONDA_BASE/etc/profile.d/conda.sh" ]; then
+  echo "ERROR: cannot find conda.sh. Tried: the base implied by REPEAT_ENV" >&2
+  echo "       ('$ENV'), \$GM_CONDA_BASE ('${GM_CONDA_BASE:-unset}'), 'conda info --base'," >&2
+  echo "       and \$HOME/miniconda3. Set GM_CONDA_BASE or pass REPEAT_ENV as a" >&2
+  echo "       full prefix path under <base>/envs/." >&2
+  exit 1
+fi
+echo "[$(date +%T)] conda base: $CONDA_BASE"
 # shellcheck disable=SC1091
 source "$CONDA_BASE/etc/profile.d/conda.sh"
 # $ENV may be a bare env name or a full prefix path. `conda activate` accepts
