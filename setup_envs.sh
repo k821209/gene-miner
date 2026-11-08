@@ -45,13 +45,31 @@ echo "[setup] configuring RepeatMasker Dfam library (~60 MB download)"
 # Derive the conda base from $SOLVER's own location (works for conda or mamba,
 # and avoids `mamba info --base`, which prints a labelled line rather than a path).
 FAMDIR="$ENVS/rmod/share/RepeatMasker/Libraries/famdb"
+DFAM_BASE=https://www.dfam.org/releases/current/families/FamDB
 mkdir -p "$FAMDIR"
-if ! ls "$FAMDIR"/*.h5 >/dev/null 2>&1; then
-  ( cd "$FAMDIR" \
-    && curl -fSL -o dfam40.0.h5.gz https://www.dfam.org/releases/current/families/FamDB/dfam40.0.h5.gz \
-    && gunzip -f dfam40.0.h5.gz ) \
-    || echo "[setup] WARN: Dfam download failed — fetch dfam40.0.h5 into $FAMDIR manually"
-fi
+# The root partition alone leaves `Families : 0`: FamDB opens every partition the
+# root's file_map declares, so RepeatMasker dies at startup until they are there.
+# rmblast searches CONSENSUS sequences, so the hmm partitions are not needed for
+# masking and are skipped. `famdb.py check <clade>` prints exactly which files a
+# given lineage wants, if this set ever needs revisiting.
+for f in dfam40.0.h5 dfam40.curated.consensus.0.h5 \
+         dfam40.uncurated.consensus.0.h5 dfam40.uncurated.consensus.1.h5; do
+  [ -s "$FAMDIR/$f" ] && continue
+  echo "[setup] fetching $f"
+  # -f matters: without it a 404 writes the error page under the partition's
+  # name, and famdb then fails with "file signature not found" on a file that
+  # looks present. Note the .gz suffix -- the bare .h5 paths do not exist.
+  if curl -fSL --retry 3 -o "$FAMDIR/$f.gz" "$DFAM_BASE/$f.gz" && gunzip -f "$FAMDIR/$f.gz"; then
+    sig=$(head -c 8 "$FAMDIR/$f" | od -An -tx1 | tr -d ' ')
+    case "$sig" in
+      89484446*) : ;;
+      *) echo "[setup] WARN: $f is not HDF5 (sig=$sig) — removing"; rm -f "$FAMDIR/$f" ;;
+    esac
+  else
+    rm -f "$FAMDIR/$f.gz"
+    echo "[setup] WARN: could not fetch $f — see $DFAM_BASE/"
+  fi
+done
 CONF="$(ls "$ENVS"/rmod/share/famdb-*/famdb.conf 2>/dev/null | head -1 || true)"
 if [ -n "$CONF" ]; then
   if grep -q '^FAMDB_DATA_DIR' "$CONF"; then
