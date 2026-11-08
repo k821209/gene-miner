@@ -31,7 +31,13 @@ create () { echo "[setup] creating env '$1' in $ENVS"; "$SOLVER" create -y -p "$
 
 create annot     hisat2 stringtie transdecoder samtools gffread
 create augustus  augustus diamond
-create rmod      repeatmasker repeatmodeler
+# Pin RepeatModeler: the unconstrained spec resolves to 1.0.8 (a 2015 release
+# with no LTR pipeline), because that build has far fewer dependencies and the
+# solver prefers it. It is not a conflict -- `repeatmodeler>=2.0.5 repeatmasker`
+# resolves cleanly to 4.2.4 + 2.0.9 -- so asking is all that is needed. Left
+# unpinned, de-novo masking silently runs a decade-old tool: on a 20 Mb test it
+# reported "Discovery complete: 0 families found" after 1h27m.
+create rmod      "repeatmodeler>=2.0.5" repeatmasker
 create eggnog    eggnog-mapper diamond
 create busco     busco
 # optional: `hmmer` in the annot env enables the Pfam ORF-retention step (--pfam)
