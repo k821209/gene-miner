@@ -55,11 +55,20 @@ mkdir -p bams
 i=0; SETS=""
 for b in $BAMS_RAW; do
   i=$((i+1)); sb="bams/sorted_${i}.bam"
-  if "$SAMTOOLS" view -H "$b" 2>/dev/null | grep -q 'SO:coordinate'; then
-    cp "$b" "$sb"
-  else
-    "$SAMTOOLS" sort -@ "$CPUS" -o "$sb" "$b"
-  fi
+  # Read the header into a variable and test it in the shell, instead of
+  # `view -H | grep -q`: grep -q closes the pipe on its first match, samtools
+  # dies of SIGPIPE, and pipefail promotes that to the test's status -- so an
+  # already-sorted BAM is reported as unsorted and re-sorted for nothing.
+  # It depends on the header outgrowing the 64 KB pipe buffer, which is why it
+  # hides on a chromosome-scale assembly and bites on a scaffold-rich one:
+  # measured 13 header lines on one genome (rc 0, correct) and 35,805 lines /
+  # 1.33 MB on another (rc 141, wrong), the latter re-sorting nine BAMs of a
+  # 3 Gb genome's RNA-seq every run.
+  HDR=$("$SAMTOOLS" view -H "$b" 2>/dev/null || true)
+  case "$HDR" in
+    *"SO:coordinate"*) cp "$b" "$sb" ;;
+    *)                 "$SAMTOOLS" sort -@ "$CPUS" -o "$sb" "$b" ;;
+  esac
   SETS="${SETS:+$SETS,}sorted_${i}"
 done
 BAMDIR=$(readlink -f bams)

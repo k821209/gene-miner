@@ -11,7 +11,10 @@ MASKED=$1; SP=$2; CFG=$3; WINMB=$4; OV=$5; THREADS=$6
 export AUGUSTUS_CONFIG_PATH=$CFG
 # SP="auto" -> use the BUSCO-trained model registered in this config
 if [ "$SP" = "auto" ]; then
-  SP=$(ls -d "$CFG"/species/BUSCO_* 2>/dev/null | head -1 | xargs -r basename)
+  # Plain glob rather than `ls | head -1`: no pipeline, so no SIGPIPE for
+  # pipefail to promote, and an absent directory is a non-match instead of an error.
+  SP=""
+  for d in "$CFG"/species/BUSCO_*; do [ -d "$d" ] || continue; SP=$(basename "$d"); break; done
   [ -z "$SP" ] && { echo "ERROR: SP=auto but no BUSCO_* species in $CFG/species" >&2; exit 1; }
   echo "using BUSCO-trained model: $SP"
 fi
@@ -46,11 +49,26 @@ export -f run_one; export SP
 xargs -P "$THREADS" -L1 bash -c 'run_one "$@"' _ < jobs.txt || true
 # Every window empty means AUGUSTUS itself failed (a broken env or an unknown
 # species), not that the genome has no genes: say so instead of merging nothing.
-if ! find out -name '*.gff3' -size +0c | grep -q .; then
-  echo "ERROR: AUGUSTUS produced no output for any of $(wc -l < jobs.txt) windows (species=$SP)" >&2
+#
+# Counted with `wc -l`, NOT `| grep -q .`. `grep -q` exits on its first match,
+# find then dies of SIGPIPE (141), and `set -o pipefail` promotes that to the
+# pipeline's status -- so the test failed EXACTLY WHEN output existed and could
+# never pass. Measured: 476 non-empty gff3 files, `find | grep -q .` -> rc 141
+# under pipefail and rc 0 without it. It cost one crop 3.5 h of AUGUSTUS that
+# was then thrown away, and it would have cost the same on every other crop.
+# wc reads to EOF, so there is no early close and nothing to promote.
+WINDOWS=$(wc -l < jobs.txt)
+PRODUCED=$(find out -name '*.gff3' -size +0c -print | wc -l)
+if [ "$PRODUCED" -eq 0 ]; then
+  echo "ERROR: AUGUSTUS produced no output for any of $WINDOWS windows (species=$SP)" >&2
   tail -5 augustus_err.log >&2
   exit 1
 fi
+# A window with no genes legitimately yields an empty file (fully masked, or a
+# short contig), so a shortfall is not an error -- but it is worth printing,
+# because the only other symptom of windows dying partway is a gene count that
+# looks plausible and is low.
+echo "windows with output: $PRODUCED / $WINDOWS"
 
 # merge; prefix gene/transcript IDs per (sequence,window) to keep them unique
 : > augustus_raw.gff3

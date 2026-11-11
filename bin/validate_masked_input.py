@@ -25,6 +25,15 @@ Usage: validate_masked_input.py genome.fa masked_genome.fa masked_rmout.out
 """
 import sys
 
+# te_filter_genes.py reads column 11 of the .out and EXCLUDES these classes from
+# the interspersed-repeat intervals, because real genes carry microsatellites and
+# low-complexity stretches in their CDS. A .out whose class column is absent or
+# uniformly "Unknown" therefore makes the TE filter count every simple repeat as
+# interspersed and drop genuine genes -- with no error, just a lower gene count.
+# Converting a published repeat GFF without filling this column in is the easy
+# way to produce such a file, so warn rather than let it through silently.
+CLASS_SKIP = ("Simple_repeat", "Low_complexity", "Satellite", "Simple", "Low_comp")
+
 
 def fasta_lengths(path):
     """seqid -> (length, lowercase_count, n_count), from a single streaming pass."""
@@ -49,12 +58,13 @@ def fasta_lengths(path):
 
 
 def rmout_rows(path):
-    """Yield (seqid, end, left) per RepeatMasker .out data row. A data row is
-    recognised by its first token being the SW score (an integer); this skips
-    the fixed 3-line header without depending on its exact wording. `left` is
-    the query "(left)" column (seqlen - end) with its parentheses stripped;
-    rows where it cannot be parsed as an int are skipped rather than crashing,
-    since a row this script cannot read cannot be checked either way."""
+    """Yield (seqid, end, left, repeat_class) per RepeatMasker .out data row. A
+    data row is recognised by its first token being the SW score (an integer);
+    this skips the fixed 3-line header without depending on its exact wording.
+    `left` is the query "(left)" column (seqlen - end) with its parentheses
+    stripped; rows where it cannot be parsed as an int are skipped rather than
+    crashing, since a row this script cannot read cannot be checked either way.
+    `repeat_class` is column 11 -- see the note on CLASS_SKIP below."""
     for line in open(path):
         parts = line.split()
         if len(parts) >= 8 and parts[0].isdigit():
@@ -64,7 +74,7 @@ def rmout_rows(path):
                 left = int(parts[7].strip("()"))
             except ValueError:
                 continue
-            yield seqid, end, left
+            yield seqid, end, left, (parts[10] if len(parts) >= 11 else "")
 
 
 def main():
@@ -116,7 +126,12 @@ def main():
     internal_mismatches = []
     seen_version_mismatch = set()   # seqids already reported, so a bad assembly's 10M rows cost O(rows), not O(rows * mismatches)
     seen_internal_mismatch = set()
-    for seqid, end, left in rmout_rows(rmout_path):
+    rm_rows = 0
+    rm_skip_class_rows = 0
+    for seqid, end, left, rclass in rmout_rows(rmout_path):
+        rm_rows += 1
+        if rclass.startswith(CLASS_SKIP):
+            rm_skip_class_rows += 1
         rm_ids.add(seqid)
         this_len = end + left
         if seqid in genome:
@@ -175,6 +190,18 @@ def main():
             "present, only lower-cased."
         )
 
+    # Not an error: a caller may legitimately supply a TE-only .out. But on a
+    # real genome RepeatMasker always reports simple repeats, so none at all
+    # almost certainly means the class column was never filled in.
+    if rm_rows and rm_skip_class_rows == 0:
+        print(f"WARNING: none of --masked_rmout's {rm_rows:,} data rows carry a "
+              f"{'/'.join(CLASS_SKIP[:2])} class in column 11.", file=sys.stderr)
+        print("         te_filter_genes.py excludes those classes from the "
+              "interspersed-repeat set; with the column unset it will treat "
+              "simple and low-complexity repeats as TEs and drop genes whose CDS "
+              "contains them. If this .out was converted from a repeat GFF, fill "
+              "column 11 in.", file=sys.stderr)
+
     if errors:
         print("VALIDATION FAILED for --masked_genome/--masked_rmout:", file=sys.stderr)
         for e in errors:
@@ -184,7 +211,8 @@ def main():
     print(
         f"masked-genome validation OK: {len(genome)} seqid(s) match between --genome and "
         f"--masked_genome (lengths and RepeatMasker end+left coordinates agree), "
-        f"{len(rm_ids)} seqid(s) referenced in --masked_rmout, "
+        f"{len(rm_ids)} seqid(s) referenced in --masked_rmout "
+        f"({rm_skip_class_rows:,}/{rm_rows:,} rows classed simple/low-complexity), "
         f"{lower_frac:.1%} of --masked_genome is lower-case."
     )
 
