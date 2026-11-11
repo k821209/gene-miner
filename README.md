@@ -170,6 +170,7 @@ nextflow run main.nf -c nextflow.config \
   --augustus_species rice \      # native AUGUSTUS model; omit / 'auto' => BUSCO-train one
   --repeat_lib repeats.fa \      # supplied library;       omit          => de-novo RepeatModeler
   --masked_genome masked.fa --masked_rmout rm.out \  # already masked? skip RepeatMasker/RepeatModeler entirely
+  --repeat_gff published_repeats.gff \               # or just the published repeat GFF; the pipeline converts it
   --run_genemark true \          # add GeneMark-ETP as a 3rd ab-initio stream
   --busco_lineage poales_odb10 \
   --outdir gm_out
@@ -182,6 +183,7 @@ The workflow's branch points are parameters (all defaults in `nextflow.config`):
 | AUGUSTUS model | `--augustus_species` | a native model name (e.g. `rice`) — or omit / `auto` to **BUSCO-train** one for a new clade |
 | Repeat library | `--repeat_lib` | a supplied `.fa` (fast) — or omit to build one **de novo** with RepeatModeler (slow) |
 | Already-masked genome | `--masked_genome` + `--masked_rmout` | supply both to skip RepeatMasker **and** RepeatModeler entirely — `--repeat_lib` alone still runs RepeatMasker. Checked for seqid/length agreement with `--genome` and for soft- vs hard-masking before use; see below. |
+| Published repeat GFF | `--repeat_gff` | a repeat-annotation GFF as genome projects distribute it (e.g. SGN's `ITAG4.0_RepeatModeler_repeats_light.gff`). The pipeline derives the soft-masked FASTA and the RepeatMasker `.out` itself and then runs the same `--masked_genome` checks over its own output, so RepeatMasker **and** RepeatModeler are skipped from one published file. Mutually exclusive with `--masked_genome`. |
 | GeneMark-ETP 3rd stream | `--run_genemark` | `true` / `false` (or pass a precomputed `--genemark_gtf`) |
 | QC filters | `--run_qc` | `true` / `false` (stop at the raw union if false) |
 
@@ -238,6 +240,32 @@ reconstructs the assembly the `.out` was generated against — this catches a sa
 seqid from a different assembly version, which a seqid-name check alone cannot); or
 `--masked_genome` has too little lower-case to be soft-masked, whether because it is
 hard-masked (`N` instead of lower-case) or because it was never masked at all.
+
+### `--repeat_gff`: the published file, not a converted one
+
+Repeat annotations are published as GFF, not as a RepeatMasker `.out`, so
+`--masked_genome`/`--masked_rmout` means converting first. `--repeat_gff` takes
+the published file and does that conversion inside the pipeline, then runs the
+checks above over its own output.
+
+It is in here rather than left to each caller because the conversion has three
+traps that each produce a silent wrong answer:
+
+- the query `(left)` column must be `seqlen - end` computed from the genome being
+  masked, or the `end + left` assembly-version check is either defeated or
+  misfired;
+- column 11, the repeat class, decides results — `te_filter_genes.py` skips
+  `Simple_repeat` / `Low_complexity` / `Satellite`, so a conversion that loses
+  the class treats every simple repeat as an interspersed one and drops genes
+  whose CDS contains a microsatellite (18% of intervals in one published GFF);
+- RepeatMasker writes GFF2 attributes — `Target "Motif:(AT)n"` — and a GFF3
+  `Target=` parser labels every interval alike, which is how the previous point
+  happens.
+
+A GFF whose seqids do not match the genome yields an empty `.out`, which is also
+what a legitimately repeat-poor genome yields — so `bin/preflight.sh` compares
+the two seqid sets before the run starts, and the process refuses an empty
+conversion.
 
 One field in a hand-built `--masked_rmout` decides results and is easy to leave
 empty: **column 11, the repeat class.** `bin/te_filter_genes.py` excludes

@@ -29,12 +29,12 @@
 #          --env-annot D --env-augustus D --env-rmod D --env-busco D \
 #          --env-eggnog D --env-genemark D --genemark-etp-dir D --eggnog-db D \
 #          --run-genemark 0|1 --run-qc 0|1 [--augustus-species S] \
-#          [--masked-genome F] [--masked-rmout F] [--repeat-lib F]
+#          [--masked-genome F] [--masked-rmout F] [--repeat-lib F] [--repeat-gff F]
 set -uo pipefail
 
 GENOME= READS= PROTEOME= LINEAGE= AUG_SP=
 E_ANNOT= E_AUG= E_RMOD= E_BUSCO= E_EGG= E_GM= GM_ETP= EGGDB=
-RUN_GM=0 RUN_QC=1 MASKED_G= MASKED_O= REPEAT_LIB=
+RUN_GM=0 RUN_QC=1 MASKED_G= MASKED_O= REPEAT_LIB= REPEAT_GFF=
 while [ $# -gt 0 ]; do
   case $1 in
     --genome) GENOME=$2; shift 2;;
@@ -55,6 +55,7 @@ while [ $# -gt 0 ]; do
     --masked-genome) MASKED_G=$2; shift 2;;
     --masked-rmout) MASKED_O=$2; shift 2;;
     --repeat-lib) REPEAT_LIB=$2; shift 2;;
+    --repeat-gff) REPEAT_GFF=$2; shift 2;;
     *) echo "preflight: unknown option $1" >&2; exit 2;;
   esac
 done
@@ -94,6 +95,20 @@ else
     else
       pass "longest seqid: ${MAXID:-?} chars"
     fi
+    # An unwrapped FASTA (one sequence per line) fails deep inside BUSCO: its
+    # bbtools step runs at a fixed --xmx=120m and dies with a Java
+    # OutOfMemoryError that names neither the file nor the reason. Measured here
+    # on a genome whose longest line was 37,915,939 characters; rewrapping to 60
+    # columns fixed it. Cheap to see, impossible to diagnose from the symptom.
+    MAXLINE=$(awk '!/^>/ {if (length($0) > m) m = length($0)} END {print m+0}' "$GENOME")
+    if [ "$MAXLINE" -gt 1000000 ]; then
+      warn "longest sequence line is $MAXLINE characters -- this genome is
+             effectively unwrapped. BUSCO's bbtools step runs at a fixed
+             --xmx=120m and dies with a Java OutOfMemoryError naming nothing.
+             Rewrap first, e.g.  seqkit seq -w 60  (or any 60-80 column rewrap)."
+    else
+      pass "sequence lines wrapped (longest $MAXLINE chars)"
+    fi
     if grep -qm1 '^>lcl|' "$GENOME"; then
       warn "genome headers carry NCBI 'lcl|' prefixes. If the annotation GFF
              does not, nothing will join and every gene looks novel -- strip
@@ -125,7 +140,35 @@ fi
 
 # ---------------------------------------------------------------- masked injection
 echo "[preflight] masking"
-if [ -n "$MASKED_G" ]; then
+if [ -n "$REPEAT_GFF" ] && [ -n "$MASKED_G" ]; then
+  fail "--repeat_gff and --masked_genome are both set; they are two ways to do the
+             same thing. Pass one."
+fi
+if [ -n "$REPEAT_GFF" ] && [ -z "$MASKED_G" ]; then
+  if [ ! -s "$REPEAT_GFF" ]; then fail "--repeat_gff not found or empty: $REPEAT_GFF"
+  else
+    # Checked here because the conversion's one success-shaped failure is a GFF
+    # whose seqids do not match the genome: it yields an empty .out, which a
+    # repeat-poor genome also yields legitimately.
+    GFFSEQ=$(awk -F'\t' '!/^#/ && NF>=9 {print $1}' "$REPEAT_GFF" | sort -u)
+    if [ -n "$GENOME" ] && [ -s "$GENOME" ]; then
+      FASEQ=$(grep '^>' "$GENOME" | sed 's/^>//' | awk '{print $1}' | sort -u)
+      SHARED=$(comm -12 <(printf '%s\n' "$GFFSEQ") <(printf '%s\n' "$FASEQ") | grep -c . || true)
+      NGFF=$(printf '%s\n' "$GFFSEQ" | grep -c . || true)
+      if [ "${SHARED:-0}" -eq 0 ]; then
+        fail "--repeat_gff shares NO seqid with the genome ($NGFF distinct in the GFF).
+             The conversion would produce an empty .out, which looks like a
+             repeat-poor genome rather than a mismatch. Check for prefixes
+             ('lcl|', 'chr') or a different assembly."
+      else
+        pass "repeat GFF: $(awk -F'\t' '!/^#/ && NF>=9' "$REPEAT_GFF" | wc -l) interval(s), $SHARED/$NGFF seqid(s) shared with the genome"
+      fi
+    else
+      unk "cannot compare --repeat_gff seqids against the genome (genome unreadable)"
+    fi
+  fi
+  skip "RepeatMasker/RepeatModeler (masking derived from --repeat_gff, then gated by VALIDATE_MASKED_INPUT)"
+elif [ -n "$MASKED_G" ]; then
   [ -s "$MASKED_G" ] || fail "--masked_genome not found: $MASKED_G"
   if [ -z "$MASKED_O" ]; then fail "--masked_genome given without --masked_rmout (TE_FILTER needs the coordinates)"
   elif [ ! -s "$MASKED_O" ]; then fail "--masked_rmout not found: $MASKED_O"
