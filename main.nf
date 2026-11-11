@@ -407,7 +407,8 @@ def preflight() {
   if( params.repeat_lib )       args += ['--repeat-lib',       params.repeat_lib.toString()]
   if( params.repeat_gff )       args += ['--repeat-gff',       params.repeat_gff.toString()]
 
-  def out = new StringBuilder(), err = new StringBuilder()
+  def out = new StringBuilder()
+  def err = new StringBuilder()
   def proc = args.execute()
   proc.consumeProcessOutput(out, err)
   proc.waitForOrKill(180_000)
