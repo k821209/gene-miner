@@ -38,7 +38,18 @@ create augustus  augustus diamond
 # unpinned, de-novo masking silently runs a decade-old tool: on a 20 Mb test it
 # reported "Discovery complete: 0 families found" after 1h27m.
 create rmod      "repeatmodeler>=2.0.5" repeatmasker
-create eggnog    eggnog-mapper diamond
+# Pin the interpreter: eggnog-mapper is a noarch package and constrains no
+# python version, so the solver takes the newest one -- 3.14 at the time of
+# writing. But eggnogmapper/common.py does `from distutils.spawn import
+# find_executable`, and distutils was REMOVED in python 3.12, so emapper.py
+# cannot even print its version:
+#     ModuleNotFoundError: No module named 'distutils'
+# The install itself succeeds, which is what makes this expensive: the EGGNOG
+# process runs after BUILD_UNION, so the failure lands with masking, alignment,
+# assembly, both ab-initio streams and the union already computed. Four hosts
+# here were in exactly that state. Asking for <3.12 costs nothing and the
+# solver takes it without complaint.
+create eggnog    "python<3.12" eggnog-mapper diamond
 create busco     busco
 # optional: `hmmer` in the annot env enables the Pfam ORF-retention step (--pfam)
 
@@ -115,6 +126,34 @@ else
   echo "[setup] WARN: $DFAM_WARN"
 fi
 
+# --- eggnog env: can emapper.py actually start? ---
+# The pin above keeps a FRESH env off python 3.12+, but an env created before
+# that pin existed is already broken and re-running this script will not fix it
+# (conda sees the packages as satisfied). So check, and say so loudly: an
+# emapper.py that cannot import distutils installs cleanly, reports nothing
+# wrong, and fails at the EGGNOG process -- after the whole expensive part of
+# the pipeline has run.
+EGG_WARN=""
+if [ -x "$ENVS/eggnog/bin/emapper.py" ]; then
+  if ! PATH="$ENVS/eggnog/bin:$PATH" "$ENVS/eggnog/bin/emapper.py" --version >/dev/null 2>&1; then
+    EGG_PY=$("$ENVS/eggnog/bin/python" -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null || echo "?")
+    if "$ENVS/eggnog/bin/python" -c "import distutils" >/dev/null 2>&1; then
+      EGG_WARN="emapper.py in envs/eggnog does not run (python $EGG_PY). Run it by hand to see why:
+             PATH=$ENVS/eggnog/bin:\$PATH emapper.py --version"
+    else
+      EGG_WARN="envs/eggnog has python $EGG_PY, which has no distutils, and
+             eggnog-mapper imports it -- emapper.py cannot start. This env predates
+             the python<3.12 pin. Fix it with either:
+               $ENVS/eggnog/bin/python -m pip install setuptools     (adds a distutils replacement)
+               $SOLVER remove -y -p $ENVS/eggnog && re-run this script  (clean, slower)
+             Until then the EGGNOG process will fail AFTER BUILD_UNION."
+    fi
+    echo "[setup] WARN: $EGG_WARN"
+  else
+    echo "[setup] eggnog env ok: $(PATH="$ENVS/eggnog/bin:$PATH" "$ENVS/eggnog/bin/emapper.py" --version 2>/dev/null | grep -oE 'emapper-[0-9.]+' | head -1)"
+  fi
+fi
+
 # --- 3rd stream: GeneMark-ETP ---
 # GeneMark-ETP's gmetp.pl bundles GeneMark + ProtHint and its own static
 # bedtools/samtools/hisat2/diamond/stringtie/gffread under tools/, so the only
@@ -176,3 +215,19 @@ nextflow.config resolves the env prefixes from $HOME/miniconda3/envs by default
     --proteome db/uniprot_sprot.fasta --augustus_species rice \
     --busco_lineage poales_odb10 --outdir gm_out
 NOTE
+
+# Warnings printed above scroll off the top behind the forty-line note, which
+# makes "we warned about it" weaker than it reads: the last thing on screen is
+# a success-shaped summary. Re-print them here so an unusable install is the
+# last thing seen, and exit non-zero so a caller that chains on this script
+# stops instead of proceeding into a pipeline that cannot finish.
+if [ -n "${DFAM_WARN:-}" ] || [ -n "${EGG_WARN:-}" ]; then
+  echo
+  echo "================= setup finished WITH PROBLEMS ================="
+  [ -n "${DFAM_WARN:-}" ] && { echo "RepeatMasker / Dfam:"; echo "  $DFAM_WARN"; echo; }
+  [ -n "${EGG_WARN:-}" ]  && { echo "eggNOG env:";          echo "  $EGG_WARN";  echo; }
+  echo "The envs above exist; the parts named here will fail when the pipeline"
+  echo "reaches them, which for eggNOG is after BUILD_UNION."
+  echo "==============================================================="
+  exit 1
+fi
