@@ -305,7 +305,55 @@ process BUSCO {
   """
 }
 
+// Run bin/preflight.sh before any task is submitted. Everything it checks is
+// cheap, and every one of the failures it covers otherwise arrives hours in,
+// after the expensive stages have been paid for: a wrong GM_CONDA_BASE surfaces
+// at BUSCO_TRAIN, a missing eggNOG DB and an emapper that cannot start surface
+// after BUILD_UNION, an unreachable ezlab surfaces after 17 h of alignment and
+// assembly. Skippable with --skip_preflight for a host where a check itself is
+// the problem; the skip is printed, so it cannot be mistaken for a pass.
+def preflight() {
+  if( asBool(params.skip_preflight) ) {
+    log.warn "preflight SKIPPED (--skip_preflight). Nothing below was verified."
+    return
+  }
+  def script = "${projectDir}/bin/preflight.sh"
+  if( !file(script).exists() ) {
+    log.warn "preflight SKIPPED: ${script} not found (older checkout?). Nothing was verified."
+    return
+  }
+  def args = ['bash', script,
+    '--genome',            params.genome?.toString() ?: '',
+    '--reads',             params.reads?.toString() ?: '',
+    '--proteome',          params.proteome?.toString() ?: '',
+    '--busco-lineage',     params.busco_lineage?.toString() ?: '',
+    '--env-annot',         params.env_annot?.toString() ?: '',
+    '--env-augustus',      params.env_augustus?.toString() ?: '',
+    '--env-rmod',          params.env_rmod?.toString() ?: '',
+    '--env-busco',         params.env_busco?.toString() ?: '',
+    '--env-eggnog',        params.env_eggnog?.toString() ?: '',
+    '--env-genemark',      params.env_genemark?.toString() ?: '',
+    '--genemark-etp-dir',  params.genemark_etp_dir?.toString() ?: '',
+    '--eggnog-db',         params.eggnog_db?.toString() ?: '',
+    '--run-genemark',      asBool(params.run_genemark) ? '1' : '0',
+    '--run-qc',            asBool(params.run_qc) ? '1' : '0']
+  if( params.augustus_species ) args += ['--augustus-species', params.augustus_species.toString()]
+  if( params.masked_genome )    args += ['--masked-genome',    params.masked_genome.toString()]
+  if( params.masked_rmout )     args += ['--masked-rmout',     params.masked_rmout.toString()]
+  if( params.repeat_lib )       args += ['--repeat-lib',       params.repeat_lib.toString()]
+
+  def out = new StringBuilder(), err = new StringBuilder()
+  def proc = args.execute()
+  proc.consumeProcessOutput(out, err)
+  proc.waitForOrKill(180_000)
+  if( out ) print out.toString()
+  if( err ) System.err.print err.toString()
+  if( proc.exitValue() != 0 )
+    exit 1, "preflight failed -- nothing was submitted. Fix the FAIL lines above, or pass --skip_preflight to run anyway."
+}
+
 workflow {
+  preflight()
   genome   = file(reqd(params.genome,"genome"))
   proteome = file(reqd(params.proteome,"proteome"))
   reads_ch = Channel.fromFilePairs(reqd(params.reads,"reads"))
