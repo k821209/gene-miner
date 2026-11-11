@@ -301,7 +301,7 @@ process BUSCO {
   script:
   """
   export PATH=${params.env_busco}/bin:\$PATH
-  busco -i ${pep} -l ${params.busco_lineage} -m proteins -c ${task.cpus} -o busco_union -f > busco.log 2>&1
+  run_busco_proteins.sh ${pep} ${params.busco_lineage} ${task.cpus} busco_union
   """
 }
 
