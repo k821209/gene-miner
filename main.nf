@@ -15,6 +15,37 @@ def asBool(v){
   return v?.toString()?.toLowerCase() in ['true','1','yes','on']
 }
 
+// Derive the injection pair from a PUBLISHED repeat GFF (--repeat_gff), so a
+// caller can hand over the file a genome project already distributes instead of
+// converting it themselves. The conversion has three silent-wrong-answer traps
+// (the (left) column, the class column, GFF2 vs GFF3 attributes) documented in
+// bin/repeat_gff_to_rmout.py; doing it here means the pipeline's own
+// VALIDATE_MASKED_INPUT gate then runs over the result, so the caller gets the
+// same guarantees as a hand-supplied pair.
+process REPEAT_GFF_TO_RMOUT {
+  tag "convert published repeat GFF"
+  publishDir "${params.outdir}/mask", mode: "copy", pattern: "repeat_gff_convert.log"
+  input:
+    path genome
+    path repeat_gff
+  output:
+    path "from_gff.softmasked.fa", emit: fasta
+    path "from_gff.out",           emit: rmout
+    path "repeat_gff_convert.log"
+  script:
+  """
+  python3 ${projectDir}/bin/repeat_gff_to_rmout.py ${genome} ${repeat_gff} from_gff \
+    > repeat_gff_convert.log 2>&1 || { echo "ERROR: repeat GFF conversion failed" >&2; cat repeat_gff_convert.log >&2; exit 1; }
+  cat repeat_gff_convert.log
+  ROWS=\$(awk 'NF>=15 && \$1+0>0' from_gff.out | wc -l)
+  echo "converted .out data rows: \$ROWS"
+  # An empty .out would pass VALIDATE_MASKED_INPUT -- a repeat-poor genome is
+  # legitimate -- but here it means the GFF's seqids did not match the genome's.
+  # That is the one outcome that looks like success and is not, so it stops here.
+  [ "\$ROWS" -gt 0 ] || { echo "ERROR: conversion produced no intervals -- do the GFF seqids match the genome? See the dropped-row warning above." >&2; exit 1; }
+  """
+}
+
 process VALIDATE_MASKED_INPUT {
   // Guards the --masked_genome/--masked_rmout injection path. When MASK_GENOME
   // derives the masked genome from `genome` itself, coordinate agreement is
@@ -341,6 +372,7 @@ def preflight() {
   if( params.masked_genome )    args += ['--masked-genome',    params.masked_genome.toString()]
   if( params.masked_rmout )     args += ['--masked-rmout',     params.masked_rmout.toString()]
   if( params.repeat_lib )       args += ['--repeat-lib',       params.repeat_lib.toString()]
+  if( params.repeat_gff )       args += ['--repeat-gff',       params.repeat_gff.toString()]
 
   def out = new StringBuilder(), err = new StringBuilder()
   def proc = args.execute()
@@ -365,6 +397,12 @@ workflow {
   // genome is injected here.
   if( params.masked_genome ) {
     VALIDATE_MASKED_INPUT(genome, file(params.masked_genome), file(reqd(params.masked_rmout,"masked_rmout")))
+    masked_fa    = VALIDATE_MASKED_INPUT.out.fasta
+    masked_rmout = VALIDATE_MASKED_INPUT.out.rmout
+  } else if( params.repeat_gff ) {
+    // One published file in; the converted pair goes through the same gate.
+    CONV = REPEAT_GFF_TO_RMOUT(genome, file(params.repeat_gff))
+    VALIDATE_MASKED_INPUT(genome, CONV.fasta, CONV.rmout)
     masked_fa    = VALIDATE_MASKED_INPUT.out.fasta
     masked_rmout = VALIDATE_MASKED_INPUT.out.rmout
   } else {
