@@ -46,6 +46,39 @@ process REPEAT_GFF_TO_RMOUT {
   """
 }
 
+// Record WHICH versions produced the output. The gene count and the TE filter
+// move with the RepeatMasker build and the Dfam release, the AUGUSTUS model
+// source and the eggNOG DB version, so "annotated with Gene-Miner" is not a
+// reproducible statement and a reader asking "which Dfam?" later has no other
+// way to find out. Runs last, taking the final GFF so it cannot run early.
+process PROVENANCE {
+  publishDir "${params.outdir}", mode: "copy"
+  input:
+    path final_gff
+    val  aug_model
+  output:
+    path "provenance.txt"
+  script:
+  """
+  export GM_PV_PROJECTDIR='${projectDir}'
+  export GM_PV_ANNOT='${params.env_annot}'       GM_PV_AUGUSTUS='${params.env_augustus}'
+  export GM_PV_RMOD='${params.masked_genome || params.repeat_gff ? "" : params.env_rmod}'
+  export GM_PV_BUSCO='${params.env_busco}'
+  export GM_PV_EGGNOG='${asBool(params.run_qc) ? params.env_eggnog : ""}'
+  export GM_PV_EGGNOG_DB='${asBool(params.run_qc) ? params.eggnog_db : ""}'
+  export GM_PV_GENEMARK_ETP='${asBool(params.run_genemark) ? params.genemark_etp_dir : ""}'
+  export GM_PV_LINEAGE='${params.busco_lineage}'
+  export GM_PV_AUG_MODEL='${aug_model}'
+  export GM_PV_GENOME='${params.genome}'         GM_PV_PROTEOME='${params.proteome}'
+  export GM_PV_REPEAT_LIB='${params.repeat_lib ?: ""}'
+  export GM_PV_MASKED_GENOME='${params.masked_genome ?: ""}'
+  export GM_PV_REPEAT_GFF='${params.repeat_gff ?: ""}'
+  export GM_PV_READS='${params.reads}'
+  export PATH=/usr/bin:/bin:\$PATH
+  bash ${projectDir}/bin/write_provenance.sh provenance.txt ${final_gff}
+  """
+}
+
 process VALIDATE_MASKED_INPUT {
   // Guards the --masked_genome/--masked_rmout injection path. When MASK_GENOME
   // derives the masked genome from `genome` itself, coordinate agreement is
@@ -441,5 +474,11 @@ workflow {
     SPROT_HITS(TE_FILTER.out.pep, proteome)
     ANNOTATE_TIERS(TE_FILTER.out.gff, TRANSDECODER.out.gff, EGGNOG.out.ann, SPROT_HITS.out.hits)
     BUSCO(TE_FILTER.out.pep)
+    PROVENANCE(TE_FILTER.out.gff, aug_sp)
+  } else {
+    // Without the QC stage the union is the final product, so provenance is
+    // written against that instead of being skipped: a run with --run_qc off
+    // still needs to say which versions produced it.
+    PROVENANCE(BUILD_UNION.out.gff, aug_sp)
   }
 }
