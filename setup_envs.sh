@@ -18,8 +18,12 @@ set -euo pipefail
 # conda-forge FIRST and strict priority: mixing in the `defaults` channel pulls an
 # older boost, and the bioconda augustus build then cannot load libboost_iostreams.
 CH="--strict-channel-priority --override-channels -c conda-forge -c bioconda"
-SOLVER=$(command -v mamba || command -v conda)
-[ -n "$SOLVER" ] || { echo "ERROR: conda/mamba not found on PATH"; exit 1; }
+# `|| true` so that `set -e` does not kill the script AT THE ASSIGNMENT when
+# neither solver is on PATH -- which is what happened: the guard on the next
+# line never ran, and the script exited 1 with a completely empty log. A guard
+# that cannot print its own message is not a guard.
+SOLVER=$(command -v mamba || command -v conda || true)
+[ -n "$SOLVER" ] || { echo "ERROR: neither mamba nor conda found on PATH. Activate your conda installation (or set GM_CONDA_BASE and put its bin on PATH) and re-run." >&2; exit 1; }
 echo "[setup] using: $SOLVER"
 
 GM_CONDA_BASE="${GM_CONDA_BASE:-$HOME/miniconda3}"
