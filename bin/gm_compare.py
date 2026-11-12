@@ -110,6 +110,12 @@ def main():
     ap.add_argument('--ref', required=True)
     ap.add_argument('--min_ro', type=float, default=0.5)
     ap.add_argument('--out', default='-')
+    # The per-locus pairing this function already computes, written out instead
+    # of discarded. bin/merge_into_reference.py needs exactly it: which of our
+    # loci corresponds to which reference locus, how well, and whether the CDS
+    # structure is identical. Recomputing it elsewhere would be a second
+    # implementation of the matching rule, free to disagree with this one.
+    ap.add_argument('--pairs', help='TSV: gm_id, ref_id, overlap, class')
     a = ap.parse_args()
 
     gm, gm_tx = parse_gff(a.gm)
@@ -119,6 +125,7 @@ def main():
     matched_ref = set()   # reference genes that are some locus' best match
     any_ref = set()       # reference genes reached by ANY locus (fusion-inflated)
     gm_recovered = gm_novel = identical = revised = 0
+    pairs = []
     for gid, gv in gm.items():
         cand = ridx.get((gv['chrom'], gv['strand']), [])
         best = None; best_ro = 0.0
@@ -135,10 +142,13 @@ def main():
             matched_ref.add(best)
             if gv['cds'] == ref[best]['cds']:
                 identical += 1
+                pairs.append((gid, best, round(best_ro, 4), 'identical'))
             else:
                 revised += 1
+                pairs.append((gid, best, round(best_ro, 4), 'revised'))
         else:
             gm_novel += 1
+            pairs.append((gid, '', 0.0, 'novel'))
     ref_missed = len(ref) - len(matched_ref)
 
     rows = [
@@ -161,6 +171,17 @@ def main():
         out.write(f"{k}\t{v}\n")
     if out is not sys.stdout:
         out.close()
+
+    if a.pairs:
+        with open(a.pairs, 'w') as fh:
+            fh.write("gm_id\tref_id\toverlap\tclass\n")
+            for r in sorted(pairs):
+                fh.write("\t".join(str(x) for x in r) + "\n")
+        # Every locus of ours gets exactly one row, so the file can be checked
+        # against the summary rather than trusted.
+        assert len(pairs) == len(gm), f"{len(pairs)} pair rows for {len(gm)} loci"
+        sys.stderr.write(f"wrote {a.pairs}: {len(pairs)} row(s) "
+                         f"({identical} identical, {revised} revised, {gm_novel} novel)\n")
     sys.stderr.write("done\n")
 
 if __name__ == '__main__':

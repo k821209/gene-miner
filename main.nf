@@ -51,11 +51,55 @@ process REPEAT_GFF_TO_RMOUT {
 // source and the eggNOG DB version, so "annotated with Gene-Miner" is not a
 // reproducible statement and a reader asking "which Dfam?" later has no other
 // way to find out. Runs last, taking the final GFF so it cannot run early.
+// Deliver an UPDATED reference annotation, not only a parallel catalogue.
+// --ref_gff names the annotation the caller already has; the reference is
+// preserved and our results are merged onto it (alternative transcripts where
+// the structure differs, new genes where there is no counterpart). The locus
+// pairing comes from gm_compare's --pairs so the matching rule is implemented
+// once. See bin/merge_into_reference.py for what it does to the reference and
+// what it refuses to do.
+process MERGE_REFERENCE {
+  tag "supplement the reference annotation"
+  publishDir "${params.outdir}", mode: "copy"
+  input:
+    path final_gff
+    path tiers_gff
+    path ref_gff
+  output:
+    path "reference_updated.gff3"
+    path "merge_report.tsv"
+    path "gm_compare_vs_reference.tsv"
+    path "locus_pairs.tsv"
+  script:
+  """
+  python3 ${projectDir}/bin/gm_compare.py --gm ${final_gff} --ref ${ref_gff} \
+    --out gm_compare_vs_reference.tsv --pairs locus_pairs.tsv
+  python3 ${projectDir}/bin/merge_into_reference.py --ref ${ref_gff} --gm ${final_gff} \
+    --pairs locus_pairs.tsv --tiers ${tiers_gff} \
+    --out reference_updated.gff3 --report merge_report.tsv
+  # The claim the deliverable rests on: everything that is not ours reproduces
+  # the input. Checked here, not left to the reader -- the only reference rows
+  # that may differ are gene lines widened to span an added transcript.
+  awk -F'\t' '\$2!="gene-miner"' reference_updated.gff3 | grep -v '^#' > .recon
+  grep -v '^#' ${ref_gff} | awk -F'\t' 'NF>=9' > .orig
+  CH=\$(diff .orig .recon | grep -c '^>' || true)
+  WD=\$(diff .orig .recon | grep '^>' | grep -c gm_widened_for || true)
+  echo "reference rows differing: \$CH, of which widened: \$WD"
+  [ "\$CH" = "\$WD" ] || { echo "ERROR: \$((CH-WD)) reference row(s) changed for a reason other than widening" >&2; exit 1; }
+  rm -f .recon .orig
+  """
+}
+
 process PROVENANCE {
   publishDir "${params.outdir}", mode: "copy"
   input:
     path final_gff
     val  aug_model
+    // BUSCO's own output directory, so the completeness score lands IN the
+    // provenance file. The first real run of this process produced a
+    // provenance with an empty BUSCO line, which is the one number a reader
+    // looks for first. `assets/NO_BUSCO` stands in when --run_qc is off.
+    path busco_dir
   output:
     path "provenance.txt"
   script:
@@ -75,7 +119,9 @@ process PROVENANCE {
   export GM_PV_REPEAT_GFF='${params.repeat_gff ?: ""}'
   export GM_PV_READS='${params.reads}'
   export PATH=/usr/bin:/bin:\$PATH
-  bash ${projectDir}/bin/write_provenance.sh provenance.txt ${final_gff}
+  BUSCO_ARG=${busco_dir}
+  [ -d "\$BUSCO_ARG" ] || BUSCO_ARG=""
+  bash ${projectDir}/bin/write_provenance.sh provenance.txt ${final_gff} \$BUSCO_ARG
   """
 }
 
@@ -406,6 +452,7 @@ def preflight() {
   if( params.masked_rmout )     args += ['--masked-rmout',     params.masked_rmout.toString()]
   if( params.repeat_lib )       args += ['--repeat-lib',       params.repeat_lib.toString()]
   if( params.repeat_gff )       args += ['--repeat-gff',       params.repeat_gff.toString()]
+  if( params.ref_gff )          args += ['--ref-gff',          params.ref_gff.toString()]
 
   def out = new StringBuilder()
   def err = new StringBuilder()
@@ -458,6 +505,7 @@ workflow {
 
   // optional 3rd ab-initio stream: GeneMark-ETP (precomputed gtf, or run in-pipeline)
   no_gm = file("${projectDir}/assets/NO_GENEMARK")
+  no_busco = file("${projectDir}/assets/NO_BUSCO")
   if( params.genemark_gtf ) {
     gm_ch = Channel.value(file(params.genemark_gtf))
   } else if( asBool(params.run_genemark) ) {
@@ -475,11 +523,16 @@ workflow {
     SPROT_HITS(TE_FILTER.out.pep, proteome)
     ANNOTATE_TIERS(TE_FILTER.out.gff, TRANSDECODER.out.gff, EGGNOG.out.ann, SPROT_HITS.out.hits)
     BUSCO(TE_FILTER.out.pep)
-    PROVENANCE(TE_FILTER.out.gff, aug_sp)
+    PROVENANCE(TE_FILTER.out.gff, aug_sp, BUSCO.out.out)
+    if( params.ref_gff )
+      MERGE_REFERENCE(TE_FILTER.out.gff, ANNOTATE_TIERS.out.gff, file(params.ref_gff))
   } else {
     // Without the QC stage the union is the final product, so provenance is
     // written against that instead of being skipped: a run with --run_qc off
-    // still needs to say which versions produced it.
-    PROVENANCE(BUILD_UNION.out.gff, aug_sp)
+    // still needs to say which versions produced it. There is no BUSCO result
+    // to report, hence the placeholder.
+    PROVENANCE(BUILD_UNION.out.gff, aug_sp, no_busco)
+    if( params.ref_gff )
+      MERGE_REFERENCE(BUILD_UNION.out.gff, BUILD_UNION.out.gff, file(params.ref_gff))
   }
 }
