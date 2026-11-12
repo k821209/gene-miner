@@ -30,11 +30,12 @@
 #          --env-eggnog D --env-genemark D --genemark-etp-dir D --eggnog-db D \
 #          --run-genemark 0|1 --run-qc 0|1 [--augustus-species S] \
 #          [--masked-genome F] [--masked-rmout F] [--repeat-lib F] [--repeat-gff F]
+#          [--ref-gff F]
 set -uo pipefail
 
 GENOME= READS= PROTEOME= LINEAGE= AUG_SP=
 E_ANNOT= E_AUG= E_RMOD= E_BUSCO= E_EGG= E_GM= GM_ETP= EGGDB=
-RUN_GM=0 RUN_QC=1 MASKED_G= MASKED_O= REPEAT_LIB= REPEAT_GFF=
+RUN_GM=0 RUN_QC=1 MASKED_G= MASKED_O= REPEAT_LIB= REPEAT_GFF= REF_GFF=
 while [ $# -gt 0 ]; do
   case $1 in
     --genome) GENOME=$2; shift 2;;
@@ -56,6 +57,7 @@ while [ $# -gt 0 ]; do
     --masked-rmout) MASKED_O=$2; shift 2;;
     --repeat-lib) REPEAT_LIB=$2; shift 2;;
     --repeat-gff) REPEAT_GFF=$2; shift 2;;
+    --ref-gff) REF_GFF=$2; shift 2;;
     *) echo "preflight: unknown option $1" >&2; exit 2;;
   esac
 done
@@ -360,6 +362,47 @@ else
       fi
     fi
   fi
+fi
+
+# ---------------------------------------------------------------- reference to supplement
+echo "[preflight] reference annotation to supplement (--ref_gff)"
+if [ -z "$REF_GFF" ]; then
+  skip "MERGE_REFERENCE (--ref_gff not given; only our own catalogue is produced)"
+elif [ ! -s "$REF_GFF" ]; then
+  fail "--ref_gff not found or empty: $REF_GFF"
+else
+  case "$REF_GFF" in
+    *.gz) fail "--ref_gff is gzipped: $REF_GFF
+             gm_compare and the merge read plain text. Decompress it first." ;;
+    *)
+      NG=$(awk -F'\t' '!/^#/ && $3=="gene"' "$REF_GFF" | wc -l)
+      if [ "$NG" -eq 0 ]; then
+        fail "--ref_gff has no 'gene' rows in column 3: $REF_GFF
+             the merge keys on gene records; an annotation using another feature
+             type would silently merge nothing."
+      else
+        pass "reference annotation: $NG gene record(s)"
+        # The failure this prevents: mismatched sequence names share nothing, so
+        # every locus of ours is classed novel and the merge appends the whole
+        # catalogue instead of supplementing. No error is raised either way.
+        if [ -n "$GENOME" ] && [ -s "$GENOME" ]; then
+          RS=$(awk -F'\t' '!/^#/ && NF>=9 {print $1}' "$REF_GFF" | sort -u)
+          GS=$(grep '^>' "$GENOME" | sed 's/^>//' | awk '{print $1}' | sort -u)
+          SH=$(comm -12 <(printf '%s\n' "$RS") <(printf '%s\n' "$GS") | grep -c . || true)
+          NR=$(printf '%s\n' "$RS" | grep -c . || true)
+          if [ "${SH:-0}" -eq 0 ]; then
+            fail "--ref_gff shares NO seqid with the genome ($NR distinct in the GFF).
+             Every locus would be reported novel and the merge would append the
+             whole catalogue rather than supplement it. Check for prefixes
+             ('lcl|', 'chr') or shortened names needing restoration first."
+          else
+            pass "reference seqids shared with the genome: $SH/$NR"
+          fi
+        else
+          unk "cannot compare --ref_gff seqids against the genome (genome unreadable)"
+        fi
+      fi ;;
+  esac
 fi
 
 # ---------------------------------------------------------------- verdict
