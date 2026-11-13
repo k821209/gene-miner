@@ -88,8 +88,15 @@ def main():
         for line in fh:
             p = line.rstrip('\n').split('\t')
             if len(p) < 4: continue
-            cls[p[0]] = p[3]
-            if p[1]: refof[p[0]] = (p[1], p[2])
+            # Strip here too. gm_compare writes the ID verbatim, and some
+            # references prefix it by feature type -- ITAG4.0 writes
+            # ID=gene:Solyc00g500001.1. The reference index below is built from
+            # stripped IDs, so an unstripped id from the pairs file matches
+            # nothing: every attachment would be skipped, no alternative
+            # transcript would be added, and NOTHING would report it. Lettuce
+            # and watermelon have no prefix, so this stayed invisible on them.
+            cls[strip_prefix(p[0])] = p[3]
+            if p[1]: refof[strip_prefix(p[0])] = (strip_prefix(p[1]), p[2])
     if not cls:
         sys.exit("FATAL: --pairs has no rows; nothing could be merged")
 
@@ -128,10 +135,20 @@ def main():
 
     # our gene -> the reference gene it will be attached to
     attach = {}
+    unresolved = []
     for gid, c in cls.items():
         if c == 'revised' and gid in refof:
             rid = refof[gid][0]
             if rid in ref_gene_line: attach[gid] = rid
+            else: unresolved.append((gid, rid))
+    if unresolved:
+        # A pairing that names a reference gene absent from the reference file
+        # means the two sides disagree about identifiers. Skipping quietly would
+        # produce a merge that looks finished and attached nothing.
+        print(f"FAIL: {len(unresolved)} pairing(s) name a reference gene not found in --ref,"
+              f" e.g. {unresolved[:3]}", file=sys.stderr)
+        print("      The pairs file and the reference disagree about gene IDs.", file=sys.stderr)
+        sys.exit(1)
     novel = [g for g, c in cls.items() if c == 'novel' and g in gm_gene]
 
     # --- widen reference genes that would not span an attached transcript ----
