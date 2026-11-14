@@ -90,6 +90,54 @@ process MERGE_REFERENCE {
   """
 }
 
+// Splice junctions with read counts, from the alignments this run already
+// produced. Computed once and shared, because both the catalogue and the
+// supplemented reference are measured against the same evidence.
+process RNA_JUNCTIONS {
+  tag "splice junctions from the run's own BAMs"
+  publishDir "${params.outdir}/rnaseq", mode: "copy"
+  input:
+    path bams
+  output:
+    path "rnaseq_junctions.tsv", emit: tsv
+  script:
+  """
+  export PATH=${params.env_annot}/bin:\$PATH
+  export SAMTOOLS=${params.env_annot}/bin/samtools
+  bash ${projectDir}/bin/junctions_from_bam.sh rnaseq_junctions.tsv ${task.cpus} ${bams}
+  """
+}
+
+// Per-TRANSCRIPT structural support. The tier annotation is locus-level and
+// says which KINDS of evidence a gene has; this says whether THIS transcript's
+// structure is the one the reads support, which is the question asked of a
+// revised model. Applied to whatever GFF it is given, so the supplemented
+// reference gets it on BOTH sides -- annotating only the added transcripts
+// would tilt every comparison toward the side carrying numbers.
+process RNA_SUPPORT {
+  tag { label }
+  publishDir "${params.outdir}", mode: "copy"
+  input:
+    // One invocation over a channel of (gff, label) pairs: DSL2 forbids calling
+    // a process twice, and the catalogue and the supplemented reference both
+    // need the same measure from the same junctions.
+    tuple path(gff), val(label)
+    path junctions
+  output:
+    path "${label}.rna_support.gff3", emit: gff
+    path "${label}.rna_support_report.tsv"
+    path "${label}.rna_support_comparison.tsv", optional: true
+  script:
+  """
+  python3 ${projectDir}/bin/annotate_rna_support.py \
+    --gff ${gff} --junctions ${junctions} \
+    --out ${label}.rna_support.gff3 \
+    --report ${label}.rna_support_report.tsv \
+    --compare ${label}.rna_support_comparison.tsv \
+    --min-reads ${params.rna_min_junction_reads}
+  """
+}
+
 process PROVENANCE {
   publishDir "${params.outdir}", mode: "copy"
   input:
@@ -526,6 +574,16 @@ workflow {
     PROVENANCE(TE_FILTER.out.gff, aug_sp, BUSCO.out.out)
     if( params.ref_gff )
       MERGE_REFERENCE(TE_FILTER.out.gff, ANNOTATE_TIERS.out.gff, file(params.ref_gff))
+    if( asBool(params.rna_support) ) {
+      RNA_JUNCTIONS(HISAT2_ALIGN.out.bam.collect())
+      rna_targets = ANNOTATE_TIERS.out.gff.map{ [it, 'union.final.tiers'] }
+      if( params.ref_gff )
+        rna_targets = rna_targets.mix( MERGE_REFERENCE.out[0].map{ [it, 'reference_updated'] } )
+      // RNA_JUNCTIONS is fed a collected (value) channel, so its output is a
+      // value channel too and both targets can read it. No .first() needed --
+      // nextflow warns that it is useless here, and it is.
+      RNA_SUPPORT(rna_targets, RNA_JUNCTIONS.out.tsv)
+    }
   } else {
     // Without the QC stage the union is the final product, so provenance is
     // written against that instead of being skipped: a run with --run_qc off
