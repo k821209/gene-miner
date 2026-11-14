@@ -53,6 +53,7 @@ This pipeline is built around two facts learned the hard way:
 | 5 | **QC-a** eggNOG taxonomy → drop residual bacterial genes | `bin/run_eggnog.sh`, `bin/filter_taxonomy.py` | `union.clean.*` |
 | 6 | **QC-b** RepeatMasker overlap → drop TE-derived genes | `bin/run_repeatmasker.sh`, `bin/te_filter_genes.py` | `union.final.*` |
 | 7 | BUSCO-protein validation (run where the lineage DB lives) | — | completeness check |
+| 8 | **Intron support score** — per-transcript RNA-seq structural support, from this run's own BAMs | `bin/junctions_from_bam.sh`, `bin/annotate_rna_support.py` | `*.rna_support.gff3`, `*.rna_support_report.tsv` |
 
 Optional helpers: `bin/run_miniprot.sh` (protein-spliced alignment evidence),
 `bin/run_evm3.sh` (EVidenceModeler consensus — kept for comparison; **not** the
@@ -171,6 +172,8 @@ nextflow run main.nf -c nextflow.config \
   --repeat_lib repeats.fa \      # supplied library;       omit          => de-novo RepeatModeler
   --masked_genome masked.fa --masked_rmout rm.out \  # already masked? skip RepeatMasker/RepeatModeler entirely
   --repeat_gff published_repeats.gff \               # or just the published repeat GFF; the pipeline converts it
+  --ref_gff reference.gff3 \                        # supplement an existing annotation instead of only rivalling it
+  --rna_min_junction_reads 3 \                      # intron support threshold (--rna_support false to skip scoring)
   --run_genemark true \          # add GeneMark-ETP as a 3rd ab-initio stream
   --busco_lineage poales_odb10 \
   --outdir gm_out
@@ -185,6 +188,9 @@ The workflow's branch points are parameters (all defaults in `nextflow.config`):
 | Already-masked genome | `--masked_genome` + `--masked_rmout` | supply both to skip RepeatMasker **and** RepeatModeler entirely — `--repeat_lib` alone still runs RepeatMasker. Checked for seqid/length agreement with `--genome` and for soft- vs hard-masking before use; see below. |
 | Published repeat GFF | `--repeat_gff` | a repeat-annotation GFF as genome projects distribute it (e.g. SGN's `ITAG4.0_RepeatModeler_repeats_light.gff`). The pipeline derives the soft-masked FASTA and the RepeatMasker `.out` itself and then runs the same `--masked_genome` checks over its own output, so RepeatMasker **and** RepeatModeler are skipped from one published file. Mutually exclusive with `--masked_genome`. |
 | GeneMark-ETP 3rd stream | `--run_genemark` | `true` / `false` (or pass a precomputed `--genemark_gtf`) |
+| Supplement an existing annotation | `--ref_gff` | the reference annotation to update. The run emits `reference_updated.gff3` — the reference preserved, with an alternative transcript on each gene whose structure we disagree with and a new gene for each locus with no counterpart. Plain text, not gzipped. |
+| Intron support score | `--rna_support` | `true` (default) / `false`. Scores every transcript's structure against this run's own spliced alignments; see **Intron support score** below. |
+| Support threshold | `--rna_min_junction_reads` | spliced reads an intron needs before it counts as supported (default `3`) |
 | QC filters | `--run_qc` | `true` / `false` (stop at the raw union if false) |
 
 **Alternative — the shell driver** (`run_gene_mining.sh`) is the original,
@@ -291,6 +297,121 @@ TE-derived genes are then flagged purely by **RepeatMasker CDS overlap**
 Pfam-domain-based TE branch. Pfam (`hmmscan`) is used only in stage 1 to
 *retain* coding ORFs (`TransDecoder --retain_pfam_hits`), not to identify
 repeats.
+
+---
+
+## Intron support score
+
+A tier tells you which **kinds** of evidence a gene has. It does not tell you
+whether a particular transcript's **structure** is the one the reads support —
+and that is the question asked of every revised model, of which a merge against
+a reference proposes tens of thousands per genome.
+
+So every mRNA in the final GFF3 carries an intron support score computed from
+the alignments this run already produced. On by default; `--rna_support false`
+skips it.
+
+### What goes on each record
+
+On every `mRNA`:
+
+| attribute | meaning |
+|---|---|
+| `rna_introns` | introns in this transcript |
+| `rna_introns_supported` | how many of them are supported |
+| `rna_intron_support` | `rna_introns_supported / rna_introns`, 2 dp. **Absent for a single-exon transcript** — there is no ratio to report |
+| `rna_min_junction_reads` | spliced reads crossing this transcript's **weakest** intron. The limiting evidence; `0` if any intron has none |
+| `rna_support` | `full` \| `partial` \| `none` \| `single_exon` |
+
+On every `gene`:
+
+| attribute | meaning |
+|---|---|
+| `rna_support_best` | the best `rna_support` among the gene's transcripts |
+
+### The scoring rules, exactly
+
+1. **A junction is a spliced alignment.** Every `N` operation in a read's CIGAR
+   is one observation of one intron. An `N` of length *L* beginning at reference
+   position *p* records the intron `[p, p+L-1]`, 1-based inclusive. Reads flagged
+   unmapped, secondary or supplementary (`-F 0x904`) are not counted: the same
+   alignment arriving twice through a secondary hit would inflate the support.
+   Counts are summed over every library.
+
+2. **A transcript's introns come from its CDS blocks.** Sort them by start; the
+   intron between consecutive blocks *i* and *i+1* is
+   `[end_i + 1, start_{i+1} - 1]`, 1-based inclusive. **UTR introns are not
+   scored**, even where the annotation has `exon` features that would reveal
+   them — see the note on comparability below.
+
+3. **An intron is supported when its exact coordinates carry at least
+   `--rna_min_junction_reads` spliced reads** (default **3**). Exact: both
+   endpoints must match. One read is not evidence against a misalignment; five
+   or more discards transcripts expressed in one tissue only.
+
+4. **`rna_support` follows from the count**, with *n* introns and *k* supported:
+
+   | | |
+   |---|---|
+   | `full` | *k = n*, *n > 0* |
+   | `partial` | `0 < k < n` |
+   | `none` | *k = 0*, *n > 0* |
+   | `single_exon` | *n = 0* |
+
+   `single_exon` is **not** `none`. A transcript with no introns has no intron
+   support to measure, and scoring it unsupported would condemn every
+   single-exon model on a quantity that does not exist for it — 14–26% of the
+   reference transcripts in the four plant annotations this was built against.
+
+5. **A gene takes the best of its transcripts, not their average or their
+   union.** One well-supported isoform does not vouch for its siblings.
+
+### Both sides of a supplemented annotation
+
+With `--ref_gff`, the reference transcripts are scored too, from the same
+junctions and on the same quantity, and `*.rna_support_comparison.tsv` places
+them side by side per gene: the best-supported reference transcript against the
+best-supported one of ours, with both intron counts and a `comparison` column.
+
+Two concessions make that table meaningful, and both cost something:
+
+- **CDS introns on both sides.** Scoring a reference on its `exon` features
+  would include UTR introns and the two numbers would stop being comparable. The
+  price is that UTR introns are unscored for everyone.
+- **`comparison` ranks on the supported fraction**, and a fraction over
+  different intron counts is not a like-for-like ratio. Both counts are printed
+  beside it; treat the column as a sort key, not a verdict.
+
+### Reading the score honestly
+
+Models built from these reads will score better on these reads than an
+annotation built independently. Measured on four plant genomes at
+`--rna_min_junction_reads 3`, 29–46% of reference transcripts scored `full`
+against 33–75% of ours. **That direction is an artefact of provenance, not a
+quality result**, and should not be quoted as one.
+
+What the score is good for runs the other way:
+
+- transcripts scoring `none` — the reads do not back that structure at all
+  (20–26% of reference transcripts here);
+- genes where the reference scores better than the revision proposed for it
+  (5.6–8.4% here) — the revisions to reject;
+- `rna_min_junction_reads` on an otherwise `full` transcript — a model resting
+  on one thinly-covered intron.
+
+### Why the coordinate convention is checked, not assumed
+
+If the junction convention and the intron convention disagree by one base, every
+transcript scores `none` and nothing reports a problem. The conventions in rules
+1 and 2 were verified against real alignments before use — in a test window, 817
+of 904 CDS-derived introns matched a junction exactly, while shifting the
+comparison by ±1 or ±2 matched **zero**. `bin/annotate_rna_support.py` also
+exits non-zero if not one multi-exon transcript came out supported, and names
+the convention as the thing to suspect rather than the models.
+
+One operational note: exclude GeneMark-ETP's `bams/sorted_*.bam` when gathering
+alignments. They are copies of the same reads, and including them doubles every
+count.
 
 ## Tests
 
