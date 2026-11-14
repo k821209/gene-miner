@@ -128,10 +128,13 @@ def main():
 
     # --- reference -----------------------------------------------------------
     ref_header, ref_recs = read_gff(a.ref)
-    ref_gene_line = {}        # ref gene id -> index into ref_recs
+    ref_gene_line = {}        # stripped ref gene id -> index into ref_recs
+    ref_gene_id_raw = {}      # stripped -> the ID EXACTLY as the file writes it
     for i, (f, d, _) in enumerate(ref_recs):
         if f[2] == 'gene':
-            ref_gene_line[strip_prefix(d.get('ID', ''))] = i
+            raw = d.get('ID', '')
+            ref_gene_line[strip_prefix(raw)] = i
+            ref_gene_id_raw[strip_prefix(raw)] = raw
 
     # our gene -> the reference gene it will be attached to
     attach = {}
@@ -187,7 +190,12 @@ def main():
             nf = list(f); nd = dict(d)
             nf[1] = a.source
             if f[2] in ('mRNA', 'transcript'):
-                nd['Parent'] = rid                    # child of the REFERENCE gene
+                # The ID exactly as the reference writes it, not the stripped
+                # form. ITAG4.0 writes ID=gene:Solyc00g500001.1, so a stripped
+                # Parent points at nothing and the added transcript is orphaned
+                # by GFF3's own rule -- 32,013 of them in one delivered file,
+                # which a strict parser drops.
+                nd['Parent'] = ref_gene_id_raw.get(rid, rid)   # child of the REFERENCE gene
                 nd['gm_class'] = 'revised_structure_candidate'
                 nd['gm_overlap'] = ov
                 nd['gm_source_locus'] = gid
@@ -244,9 +252,14 @@ def main():
     ids = [strip_prefix(d['ID']) for f, d, _ in chk
            if 'ID' in d and f[2] in ('gene', 'mRNA', 'transcript')]
     dup = [k for k, v in collections.Counter(ids).items() if v > 1]
-    parents = {strip_prefix(d['ID']) for f, d, _ in chk if 'ID' in d}
-    orphan = [strip_prefix(d['Parent'].split(',')[0]) for f, d, _ in chk
-              if 'Parent' in d and strip_prefix(d['Parent'].split(',')[0]) not in parents]
+    # VERBATIM, deliberately. Stripping both sides made this check blind to the
+    # error it exists to catch: a Parent written in the stripped form against an
+    # ID written with a prefix compared equal, so 32,013 genuinely orphaned
+    # records were reported as zero orphans. GFF3 resolves Parent against ID as
+    # written, so the check must too.
+    parents = {d['ID'] for f, d, _ in chk if 'ID' in d}
+    orphan = [d['Parent'].split(',')[0] for f, d, _ in chk
+              if 'Parent' in d and d['Parent'].split(',')[0] not in parents]
 
     print(f"reference genes in            {ref_genes_in}")
     print(f"reference genes out           {ref_genes_out}   (must equal the line above)")
