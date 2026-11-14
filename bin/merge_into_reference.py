@@ -30,7 +30,7 @@ Usage:
       --pairs pairs.tsv --out reference_updated.gff3 [--report merge_report.tsv]
       [--tiers union.final.tiers.gff3]
 """
-import argparse, sys, re, collections
+import argparse, sys, re, collections, subprocess, shutil
 
 def attrs(s):
     d = {}
@@ -79,6 +79,9 @@ def main():
     ap.add_argument('--report')
     ap.add_argument('--tiers', help='union.final.tiers.gff3, to carry the evidence tier onto each addition')
     ap.add_argument('--source', default='gene-miner')
+    ap.add_argument('--gff3validator',
+                    help="path to genometools `gt`; found on PATH if omitted. "
+                         "Its absence is reported, never treated as a pass.")
     a = ap.parse_args()
 
     # --- pairing -------------------------------------------------------------
@@ -154,6 +157,34 @@ def main():
         sys.exit(1)
     novel = [g for g, c in cls.items() if c == 'novel' and g in gm_gene]
 
+    # What does THIS reference mean by a length-like attribute? ITAG4.0 writes
+    # length = end - start; others may write end - start + 1. Assuming either
+    # one puts a wrong number on every record we touch, and no GFF3 validator
+    # would say so because the key is not in the spec. So it is derived from the
+    # records as they arrive, and if they do not agree the attribute is dropped
+    # rather than guessed -- a missing attribute is honest, a wrong one is not.
+    SPAN_KEYS = ('length', 'len', 'size')
+    span_off = collections.Counter()
+    for f, d, _ in ref_recs:
+        if f[2] != 'gene': continue
+        for k, v in d.items():
+            if k.lower() in SPAN_KEYS and str(v).isdigit():
+                span_off[(k.lower(), int(v) - (int(f[4]) - int(f[3])))] += 1
+    span_rule = {}
+    for (k, off), n in span_off.items():
+        tot = sum(c for (kk, _), c in span_off.items() if kk == k)
+        # one convention has to account for essentially all of them
+        if n / tot >= 0.99:
+            span_rule[k] = off
+    for k in {kk for kk, _ in span_off}:
+        if k in span_rule:
+            print(f"reference span convention: {k} = end - start + {span_rule[k]} "
+                  f"({span_off[(k, span_rule[k])]:,} record(s))")
+        else:
+            print(f"reference span convention: {k} is NOT consistent "
+                  f"({len(set(o for kk, o in span_off if kk == k))} different offsets); "
+                  f"it will be dropped where a gene is widened rather than guessed")
+
     # --- widen reference genes that would not span an attached transcript ----
     widened = []
     for gid, rid in attach.items():
@@ -177,6 +208,22 @@ def main():
             prev = nd.get('gm_widened_for')
             nd['gm_widened_for'] = f"{prev},{gid}" if prev else gid
             nf[3] = str(min(rs, lo)); nf[4] = str(max(re_, hi))
+            # The reference may carry its own derived span attribute -- ITAG4.0
+            # writes length=9193 on the gene. Widening the coordinates and
+            # leaving that behind puts a contradiction inside one record, and no
+            # GFF3 validator catches it: `length` is non-standard, so the format
+            # is still valid while the file disagrees with itself. Measured:
+            # 5,945 of 5,945 widened genes on one crop. Recompute it, and keep
+            # the original beside gm_original_span so nothing is lost.
+            base = int(nf[4]) - int(nf[3])
+            for lk in [k for k in nd if k.lower() in SPAN_KEYS]:
+                if not str(nd[lk]).isdigit(): continue
+                if 'gm_original_' + lk not in nd:
+                    nd['gm_original_' + lk] = nd[lk]
+                if lk.lower() in span_rule:
+                    nd[lk] = str(base + span_rule[lk.lower()])
+                else:
+                    del nd[lk]        # no single convention to honour
             nf[8] = fmt_attrs(nd)
             ref_recs[i] = (nf, nd, n)
             widened.append((rid, gid, nd['gm_original_span'], f"{nf[3]}-{nf[4]}"))
@@ -273,6 +320,43 @@ def main():
     print(f"duplicate IDs                 {len(dup)}" + (f"  e.g. {dup[:3]}" if dup else ""))
     print(f"orphan Parent references      {len(orphan)}" + (f"  e.g. {orphan[:3]}" if orphan else ""))
 
+    # Attributes that restate a coordinate must agree with it. A validator
+    # cannot do this -- these keys are not in the spec -- so it is done here.
+    # Judged against the convention derived from the reference, not against an
+    # assumed one. Checking end-start+1 on a file that writes end-start flagged
+    # 28,130 untouched reference genes as defective and would have driven a
+    # "fix" that put a wrong value on every record this tool writes.
+    inconsistent = []
+    for f, d, _ in chk:
+        if f[2] != 'gene': continue
+        base = int(f[4]) - int(f[3])
+        for k, v in d.items():
+            kl = k.lower()
+            if kl in SPAN_KEYS and str(v).isdigit() and kl in span_rule:
+                if int(v) != base + span_rule[kl]:
+                    inconsistent.append((d.get('ID', '?'), k, v, base + span_rule[kl]))
+    print(f"span attributes disagreeing with the reference's own convention  {len(inconsistent)}"
+          + (f"  e.g. {inconsistent[:2]}" if inconsistent else ""))
+
+    # The external validator, because the checks above are mine and this one is
+    # not. It caught a defect mine missed: 32,013 records whose Parent was
+    # written in a stripped form against a prefixed ID, which my orphan check
+    # normalised away and reported as zero.
+    gt_state, gt_msg = 'not run', ''
+    gt = a.gff3validator or shutil.which('gt')
+    if gt:
+        try:
+            r = subprocess.run([gt, 'gff3validator', a.out],
+                               capture_output=True, text=True, timeout=1800)
+            err = (r.stderr or '') + (r.stdout or '')
+            gt_state = 'valid' if r.returncode == 0 else 'INVALID'
+            gt_msg = next((l for l in err.splitlines() if 'error' in l.lower()), '')
+        except Exception as e:
+            gt_state, gt_msg = 'could not run', str(e)
+    else:
+        gt_msg = "no `gt` on PATH; pass --gff3validator /path/to/gt to enable"
+    print(f"gt gff3validator: {gt_state}" + (f"  {gt_msg}" if gt_msg else ""))
+
     if a.report:
         with open(a.report, 'w') as fh:
             fh.write("metric\tvalue\n")
@@ -285,13 +369,25 @@ def main():
                          ('widening_events', len(widened)),
                          ('total_genes_out', genes_out),
                          ('duplicate_ids', len(dup)),
-                         ('orphan_parent_references', len(orphan))):
+                         ('orphan_parent_references', len(orphan)),
+                         ('span_attributes_inconsistent', len(inconsistent)),
+                         ('gt_gff3validator', gt_state)):
                 fh.write(f"{k}\t{v}\n")
             fh.write("\n# reference gene lines widened to span an added transcript\n")
             fh.write("ref_gene\tgm_locus\toriginal_span\tnew_span\n")
             for r in widened: fh.write('\t'.join(r) + '\n')
 
     bad = 0
+    if gt_state == 'INVALID':
+        print(f"FAIL: gt gff3validator rejected {a.out}: {gt_msg}", file=sys.stderr); bad = 1
+    elif gt_state in ('not run', 'could not run'):
+        # Not a pass. An absent validator and a satisfied one must not read the
+        # same, which is the failure mode this whole file keeps running into.
+        print(f"NOTE: the GFF3 validator did not run ({gt_msg}). The checks above "
+              f"are self-written and one of them has been wrong before.", file=sys.stderr)
+    if inconsistent:
+        print(f"FAIL: {len(inconsistent)} gene record(s) carry a span attribute that "
+              f"contradicts their coordinates", file=sys.stderr); bad = 1
     if ref_genes_out != ref_genes_in:
         print(f"FAIL: {ref_genes_in} reference genes in, {ref_genes_out} out -- the reference was not preserved", file=sys.stderr); bad = 1
     if dup:
