@@ -413,6 +413,63 @@ One operational note: exclude GeneMark-ETP's `bams/sorted_*.bam` when gathering
 alignments. They are copies of the same reads, and including them doubles every
 count.
 
+---
+
+## GFF3 sanity check
+
+Every check in this repo was written by the same hand as the code it checks, and
+in one week four defects got past all of them:
+
+| defect | what my own check said |
+|---|---|
+| 32,013 transcripts orphaned by a `Parent` written without the reference's `gene:` prefix | `orphan Parent references 0` — it normalised both sides before comparing |
+| 5,945 widened genes carrying a `length=` that contradicted their coordinates | nothing; `length` is not in the spec, so no validator looks |
+| a `length` recomputed as `end - start + 1` against a reference that writes `end - start` | the check agreed with the bug, because both assumed the same convention |
+| three of four reference annotations invalid as supplied | never asked |
+
+So `bin/check_gff3.sh` runs **genometools** over the output — a validator this
+project did not write — and `bin/merge_into_reference.py` calls it on its own
+result.
+
+```bash
+bin/check_gff3.sh reference_updated.gff3 reference.gff3
+```
+
+| exit | meaning |
+|---|---|
+| 0 | valid, **or** invalid with the same error the reference already has (inherited) |
+| 1 | invalid with an error the reference does not have (introduced here) |
+| 2 | the validator could not be run — reported as `UNKNOWN`, never as a pass |
+
+### Inherited is not introduced
+
+Three of the four reference annotations used to build this were not valid GFF3
+as supplied: two have no `##gff-version` line, one declares every
+`##sequence-region` twice, and two write `.` as the phase on CDS records
+(98,453 and 171,627 of them). A merged file inherits those. Failing on an
+inherited defect would mean **no reference with a pre-existing flaw could ever
+be supplemented**, which is most of them — so the check reports it, names it as
+the reference's, and lets delivery proceed.
+
+Two details make that verdict trustworthy:
+
+- **Errors are compared on their kind**, with the filename and line number
+  stripped, since those differ between two files by construction.
+- **The reference is validated with a `##gff-version` line prepended when it
+  lacks one.** The validator stops at the *first* error, so a reference missing
+  that line reports only it and hides everything below, while the output — which
+  gains the line in the merge — reports the next defect down. Comparing the raw
+  reference called an inherited CDS-phase error newly introduced; with the line
+  prepended, the same reference reports that error itself.
+
+### The last thing to write the file is the last thing to validate it
+
+`merge_into_reference.py` validates what it wrote, and then the intron-support
+annotator rewrites the same file. The merge's verdict does not cover what is
+finally delivered, so the check is run **again** on the final artefact. A
+validation that happens anywhere but last is a validation of something nobody
+receives.
+
 ## Tests
 
 Lightweight smoke tests exercise the union and QC-filter logic on tiny
