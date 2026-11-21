@@ -264,7 +264,19 @@ def main():
         novel_lines.append('\t'.join(nf))
         added_genes += 1
         for cf, cd in gm_children.get(gid, []):
-            xf = list(cf); xd = dict(cd); xf[1] = a.source; xf[8] = fmt_attrs(xd)
+            xf = list(cf); xd = dict(cd); xf[1] = a.source
+            # Repeat the gene's tier on its transcripts. An added transcript
+            # (above) carries gm_tier on the mRNA row because the transcript is
+            # what is being proposed; a novel locus carries it on the gene row
+            # because the locus is. Without this line the two kinds of addition
+            # answer `$3=="mRNA" && $9 !~ /gm_tier=low/` differently -- the
+            # obvious one-pass filter, which then keeps every transcript of
+            # every low-tier novel locus and reports no error. Measured on one
+            # delivered annotation: 94,904 transcripts kept where 89,806 was
+            # meant, 5,098 of them from loci with no evidence at all.
+            if xf[2] in ('mRNA', 'transcript') and gid in tier:
+                xd.setdefault('gm_tier', tier[gid])
+            xf[8] = fmt_attrs(xd)
             novel_lines.append('\t'.join(xf))
 
     with open(a.out, 'w') as out:

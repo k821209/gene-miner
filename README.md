@@ -536,3 +536,48 @@ See `test/README.md` for what each test covers.
    (`REPEATMASKER_DIR`), not just the binary on `$PATH`. Long remote jobs need
    `setsid nohup … </dev/null &` (a plain background SSH dies on SIGHUP if the
    connection drops).
+
+8. **Budget two days for the BUSCO retraining of Lesson 2, and do not size it
+   from the genome.** `--long` adds `optimize_augustus.pl`, which is the single
+   longest process in the pipeline and the one that blocks a schedule. Measured
+   on four genomes, same core allocation:
+
+   | genome | size | optimize_augustus.pl | BUSCO_TRAIN total |
+   |---|---|---|---|
+   | tomato | 0.78 Gb | **36 h 34 m** | 43 h 36 m |
+   | lettuce | 2.31 Gb | 8 h 54 m | 25 h 02 m |
+   | pepper | 3.06 Gb | 28 h+ | 44 h+ |
+
+   **The smallest genome took the longest**, and had the smaller training set
+   (1.6 GB vs 2.31 Gb lettuce's 3.1 GB). The cost tracks the number of
+   optimisation rounds, not sequence length, so "it is small, it will be quick"
+   is wrong in the direction that misses a deadline. Plan each genome at ~2 days
+   for this step alone.
+
+   **It also reports no progress.** BUSCO opens
+   `busco_train/logs/optimize_augustus.pl_out.log` and leaves it at 0 bytes
+   until the end, so "nearly done" and "two more days" look identical, and
+   nothing under `busco_train/` changes mtime — which reads as a hung job. It is
+   alive if `tmp_opt_*/predictions-*.txt` or
+   `aug_config/species/BUSCO_*/*-tmp*.pbl` are being touched; watch those, not
+   the log. It is finished when `tmp_opt_*` disappears and `trained_species.txt`
+   names a model.
+
+   Dropping `--long` removes this step, at the cost of an un-optimised model.
+   Decide before the first genome: switching partway means the genomes in a set
+   were annotated by differently-trained models, which is not a difference you
+   want to explain later.
+
+9. **An evidence tier has to reach the row the consumer filters on.** In the
+   supplemented annotation (`merge_into_reference.py`) an added transcript
+   carries `gm_tier` on its `mRNA` row, because the transcript is the proposal;
+   a novel locus carries it on the `gene` row, because the locus is. Both are
+   honest descriptions and together they are a trap: the obvious filter is one
+   pass over `mRNA` rows, and under it the two kinds behave differently. On one
+   delivered annotation `$3=="mRNA" && $9 !~ /gm_tier=low/` kept 94,904
+   transcripts where 89,806 was meant — 5,098 belonging to novel loci with no
+   evidence at all, kept silently as a larger number and no error. The gene's
+   tier is now repeated on its transcripts so the one-pass filter is correct;
+   `test/test_merge_into_reference.py` is that filter, as a test. Reference rows
+   still carry no `gm_tier` and so survive any tier filter, which is deliberate —
+   the customer's own annotation must not be removable by one.
