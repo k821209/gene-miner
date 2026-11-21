@@ -581,3 +581,35 @@ See `test/README.md` for what each test covers.
    `test/test_merge_into_reference.py` is that filter, as a test. Reference rows
    still carry no `gm_tier` and so survive any tier filter, which is deliberate —
    the customer's own annotation must not be removable by one.
+
+10. **A reference does not have to type a gene `gene`.** Sequence Ontology has
+    subtypes of `gene`, and references use them: Phytozome 13 *C. reinhardtii*
+    CC-4532 v6.1 writes **810 of its 17,693 genes as
+    `transposable_element_gene`**, and Ensembl writes `ncRNA_gene` and
+    `pseudogene`. `gm_compare.py` pairs those without noticing, because it keys
+    a gene through its mRNAs' `Parent` rather than through the gene row's type.
+    `merge_into_reference.py` indexed rows typed `gene` only, so the pairings it
+    then could not resolve came out as `4 pairing(s) name a reference gene not
+    found in --ref` — **the error names the pairs file for a defect that was in
+    the index, on a reference that is valid.** That is the expensive part: the
+    message sends you to the wrong file.
+
+    The fix is not a list of type names. A list has to be extended for the next
+    reference that uses one we have not seen, and reports a clean run until
+    somebody notices the gene count. So a gene record is identified
+    structurally — **an ID, no `Parent`, and it is the `Parent` of something** —
+    and the per-type counts of the reference's top-level records are printed, so
+    what was counted as a gene and what was not is in the log rather than in a
+    later subtraction:
+
+    ```
+    reference top-level gene                         16,883   (16,883 with children -> gene record)
+    reference top-level transposable_element_gene       810   (810 with children -> gene record)
+    reference genes in            17693
+    reference genes out           17693   (must equal the line above)
+    ```
+
+    The same test runs on the output, which holds both sides, against the union
+    of both sides' types — counting the output by a different rule than
+    `reference genes in` was built with would make that equality compare two
+    different things and pass anyway.

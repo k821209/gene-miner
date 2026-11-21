@@ -70,6 +70,45 @@ def read_gff(path):
             recs.append((f, attrs(f[8]), n))
     return header, recs
 
+def gene_record_types(recs):
+    """Which feature types open a gene record IN THIS FILE -- derived from the
+    file, not enumerated.
+
+    References do not agree on how to type a gene. Phytozome C. reinhardtii
+    CC-4532 v6.1 writes 810 of its 17,693 genes as `transposable_element_gene`;
+    Ensembl writes `ncRNA_gene` and `pseudogene`. gm_compare.py pairs those
+    correctly -- it keys a gene through its mRNAs' Parent, not through the gene
+    row's type -- so an index built from `gene` rows alone rejected their
+    pairings with "pairing(s) name a reference gene not found in --ref" on a
+    reference that was perfectly valid. The message named the pairs file for a
+    defect that was in this index.
+
+    A list of type names would have to be extended for the next reference that
+    uses one we have not seen, and would report a clean run until someone
+    noticed. So the rule is structural: a gene record has an ID, has no Parent,
+    and is the Parent of something.
+
+    Returns (types, top_level_counts, gene_record_counts). The counts are
+    printed by the caller, so what this included and what it left out is in the
+    log -- rather than surfacing later as a gene count that does not add up.
+    """
+    has_child, any_parent = set(), False
+    for f, d, _ in recs:
+        if 'Parent' in d:
+            any_parent = True
+            for p in d['Parent'].split(','):
+                has_child.add(strip_prefix(p.strip()))
+    top, genes = collections.Counter(), collections.Counter()
+    for f, d, _ in recs:
+        if 'Parent' in d or 'ID' not in d: continue
+        top[f[2]] += 1
+        # A file with no Parent anywhere is a flat list of genes -- which is
+        # what annotate_tiers.py writes. There every top-level record is one,
+        # and requiring a child would find nothing.
+        if not any_parent or strip_prefix(d['ID']) in has_child:
+            genes[f[2]] += 1
+    return set(genes) | {'gene'}, top, genes
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--ref', required=True)
@@ -107,19 +146,21 @@ def main():
     tier = {}
     if a.tiers:
         _, trecs = read_gff(a.tiers)
+        tier_types, _, _ = gene_record_types(trecs)
         for f, d, _ in trecs:
-            if f[2] == 'gene':
+            if f[2] in tier_types:
                 gid = strip_prefix(d.get('ID', ''))
                 for k in ('tier', 'confidence', 'gm_tier'):
                     if k in d: tier[gid] = d[k]; break
 
     # --- our annotation, grouped by gene -------------------------------------
     _, grecs = read_gff(a.gm)
+    gm_types, _, _ = gene_record_types(grecs)
     gm_children = collections.defaultdict(list)   # gene id -> non-gene records
     gm_gene = {}
     tx_parent = {}                                 # transcript id -> gene id
     for f, d, _ in grecs:
-        if f[2] == 'gene':
+        if f[2] in gm_types:
             gm_gene[strip_prefix(d['ID'])] = (f, d)
         elif 'Parent' in d:
             par = strip_prefix(d['Parent'].split(',')[0])
@@ -131,10 +172,15 @@ def main():
 
     # --- reference -----------------------------------------------------------
     ref_header, ref_recs = read_gff(a.ref)
+    ref_types, ref_top, ref_gene_counts = gene_record_types(ref_recs)
+    for t, n in ref_top.most_common():
+        print(f"reference top-level {t:<26} {n:>8,}   "
+              + (f"({ref_gene_counts[t]:,} with children -> gene record)"
+                 if t in ref_gene_counts else "(no children -> not a gene record)"))
     ref_gene_line = {}        # stripped ref gene id -> index into ref_recs
     ref_gene_id_raw = {}      # stripped -> the ID EXACTLY as the file writes it
     for i, (f, d, _) in enumerate(ref_recs):
-        if f[2] == 'gene':
+        if f[2] in ref_types:
             raw = d.get('ID', '')
             ref_gene_line[strip_prefix(raw)] = i
             ref_gene_id_raw[strip_prefix(raw)] = raw
@@ -166,7 +212,7 @@ def main():
     SPAN_KEYS = ('length', 'len', 'size')
     span_off = collections.Counter()
     for f, d, _ in ref_recs:
-        if f[2] != 'gene': continue
+        if f[2] not in ref_types: continue
         for k, v in d.items():
             if k.lower() in SPAN_KEYS and str(v).isdigit():
                 span_off[(k.lower(), int(v) - (int(f[4]) - int(f[3])))] += 1
@@ -289,7 +335,7 @@ def main():
                   f"awk -F'\\t' '$2!=\"{a.source}\"' reconstructs the input\n")
         cur_gene = None
         for f, d, _ in ref_recs:
-            if f[2] == 'gene':
+            if f[2] in ref_types:
                 if cur_gene is not None:
                     for l in out_extra.get(cur_gene, []): out.write(l + '\n')
                 cur_gene = strip_prefix(d.get('ID', ''))
@@ -301,15 +347,19 @@ def main():
     # --- checks that would otherwise be left to a reader --------------------
     ref_genes_in = len(ref_gene_line)
     _, chk = read_gff(a.out)
-    genes_out = sum(1 for f, _, _ in chk if f[2] == 'gene')
-    ref_genes_out = sum(1 for f, _, _ in chk if f[2] == 'gene' and f[1] != a.source)
+    # The output holds both sides, so it is counted against both sides' types.
+    # Counting it by a different rule than `ref_genes_in` was built with would
+    # make the "must equal the line above" check compare two different things.
+    out_types = ref_types | gm_types
+    genes_out = sum(1 for f, _, _ in chk if f[2] in out_types)
+    ref_genes_out = sum(1 for f, _, _ in chk if f[2] in ref_types and f[1] != a.source)
     # Only gene and mRNA IDs must be unique. A multi-segment CDS or exon shares
     # one ID across its parts -- that is GFF3's discontinuous-feature form, not
     # an error (measured on one input: 320,833 CDS records carrying 68,451
     # distinct IDs, i.e. one per transcript). Counting every ID reported 46,320
     # "duplicates" on a merge whose gene and mRNA IDs were in fact all unique.
     ids = [strip_prefix(d['ID']) for f, d, _ in chk
-           if 'ID' in d and f[2] in ('gene', 'mRNA', 'transcript')]
+           if 'ID' in d and (f[2] in out_types or f[2] in ('mRNA', 'transcript'))]
     dup = [k for k, v in collections.Counter(ids).items() if v > 1]
     # VERBATIM, deliberately. Stripping both sides made this check blind to the
     # error it exists to catch: a Parent written in the stripped form against an
@@ -340,7 +390,7 @@ def main():
     # "fix" that put a wrong value on every record this tool writes.
     inconsistent = []
     for f, d, _ in chk:
-        if f[2] != 'gene': continue
+        if f[2] not in out_types: continue
         base = int(f[4]) - int(f[3])
         for k, v in d.items():
             kl = k.lower()
