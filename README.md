@@ -613,3 +613,39 @@ See `test/README.md` for what each test covers.
     of both sides' types — counting the output by a different rule than
     `reference genes in` was built with would make that equality compare two
     different things and pass anyway.
+
+11. **A locus-level pairing cannot place a transcript.** `gm_compare.py` pairs a
+    whole locus with its best reference gene, and `merge_into_reference.py` used
+    to attach every transcript of that locus to that gene and widen the gene to
+    span them. A locus can hold a read-through model, or isoforms sitting in
+    different neighbouring genes, so that put transcripts under genes they do
+    not overlap — and the widening made it destructive. Measured on a
+    *C. reinhardtii* CC-4532 v6.1 build, over 26,169 added transcripts:
+
+    | | before | after |
+    |---|---|---|
+    | under a gene other than their largest-CDS-overlap gene | 888 | 0 |
+    | no CDS overlap with their host at all | 460 | 26 |
+    | read-through models filed under one of the two genes | 1,526 | 0 |
+    | reference gene spans widened | 2,272 | 1,231 |
+
+    The 26 that remain are transcripts lying inside exactly one gene's span
+    without reaching the 30 bp CDS threshold — intronic or UTR-only — which is a
+    placement, not a mis-attachment, and is counted separately so it can be
+    checked rather than assumed.
+
+    **The harm was silent.** One reference gene was widened from 51,688–53,413
+    to 51,688–60,215 and then contained every intron of its neighbour, so a
+    downstream analysis asking "which gene contains this intron" moved 10,212 of
+    100,200 introns (10%) to the wrong gene. Nothing failed, no record was
+    missing, and the file was valid GFF3 throughout — the only symptom was a
+    label.
+
+    So each transcript is placed on its own CDS overlap; a transcript that
+    belongs under no single reference gene gets a gene record of its own
+    labelled with why (`gm_class=readthrough` / `no_overlap` / `exceeds_span`);
+    and a widening that would reach into another reference gene on the same
+    strand is refused, reported, and the transcript written separately rather
+    than clipped or dropped. **Widening into empty sequence still happens** —
+    the rule is about neighbours, not about never touching the reference, and
+    `test_merge_placement.py` holds that side down too.
