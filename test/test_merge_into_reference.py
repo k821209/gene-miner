@@ -173,5 +173,119 @@ class TestTierReachesTranscripts(unittest.TestCase):
             self.assertEqual(seen.get("GM_A000003"), "high")
 
 
+# --- a reference that types genes with an SO subtype of gene ----------------
+#
+# Phytozome C. reinhardtii CC-4532 v6.1 writes 810 of its 17,693 genes as
+# `transposable_element_gene`. gm_compare.py pairs those correctly, because it
+# keys a gene through its mRNAs' Parent rather than through the gene row's
+# type; merge_into_reference.py used to index only rows typed `gene`, so the
+# pairings it could not resolve were reported as a disagreement about gene IDs
+# on a reference that was in fact valid.
+#
+# `region` is here on purpose: a top-level record with no children. It must NOT
+# be counted as a gene, or the counts this script prints become wrong in the
+# other direction.
+REF_SUBTYPE = """##gff-version 3
+chr1\tref\tregion\t1\t20000\t.\t+\t.\tID=chr1_region
+chr1\tref\tgene\t1000\t2000\t.\t+\t.\tID=REF0001
+chr1\tref\tmRNA\t1000\t2000\t.\t+\t.\tID=REF0001.1;Parent=REF0001
+chr1\tref\tCDS\t1000\t2000\t.\t+\t0\tID=REF0001.1.cds;Parent=REF0001.1
+chr1\tref\ttransposable_element_gene\t5000\t6000\t.\t+\t.\tID=REFTE001
+chr1\tref\tmRNA\t5000\t6000\t.\t+\t.\tID=REFTE001.1;Parent=REFTE001
+chr1\tref\tCDS\t5000\t6000\t.\t+\t0\tID=REFTE001.1.cds;Parent=REFTE001.1
+"""
+
+# Ours: one locus pairing with the plain gene, one with the subtype gene.
+GM_SUBTYPE = """##gff-version 3
+chr1\tgm\tgene\t1000\t2000\t.\t+\t.\tID=GM_R000001
+chr1\tgm\tmRNA\t1000\t2000\t.\t+\t.\tID=GM_R000001.t1;Parent=GM_R000001
+chr1\tgm\tCDS\t1000\t1900\t.\t+\t0\tID=GM_R000001.t1.cds;Parent=GM_R000001.t1
+chr1\tgm\tgene\t5000\t6000\t.\t+\t.\tID=GM_R000002
+chr1\tgm\tmRNA\t5000\t6000\t.\t+\t.\tID=GM_R000002.t1;Parent=GM_R000002
+chr1\tgm\tCDS\t5000\t5900\t.\t+\t0\tID=GM_R000002.t1.cds;Parent=GM_R000002.t1
+"""
+
+PAIRS_SUBTYPE = """gm_gene\tref_gene\toverlap\tclass
+GM_R000001\tREF0001\t0.95\trevised
+GM_R000002\tREFTE001\t0.95\trevised
+"""
+
+
+def feature_ids(path, want):
+    out = []
+    with open(path) as fh:
+        for line in fh:
+            if line.startswith("#"):
+                continue
+            c = line.rstrip("\n").split("\t")
+            if len(c) > 8 and c[2] == want:
+                m = re.search(r"ID=([^;]+)", c[8])
+                if m:
+                    out.append(m.group(1))
+    return out
+
+
+class TestSOGeneSubtypes(unittest.TestCase):
+    def _merge(self, tmp):
+        for name, text in (("ref.gff3", REF_SUBTYPE), ("gm.gff3", GM_SUBTYPE),
+                           ("pairs.tsv", PAIRS_SUBTYPE)):
+            write(os.path.join(tmp, name), text)
+        out = os.path.join(tmp, "merged.gff3")
+        r = run_script("merge_into_reference.py", [
+            "--ref", os.path.join(tmp, "ref.gff3"),
+            "--gm", os.path.join(tmp, "gm.gff3"),
+            "--pairs", os.path.join(tmp, "pairs.tsv"),
+            "--out", out,
+        ], cwd=tmp)
+        return out, r
+
+    def test_a_subtype_gene_can_be_paired(self):
+        """The regression: this exited 1 with 'pairing(s) name a reference gene
+        not found in --ref', blaming the pairs file for a valid reference."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out, r = self._merge(tmp)
+            self.assertEqual(r.returncode, 0,
+                             f"merge failed:\n{r.stdout}\n{r.stderr}")
+            self.assertIn("reference genes in            2", r.stdout)
+            self.assertIn("reference genes out           2", r.stdout)
+
+    def test_every_reference_gene_goes_in_and_comes_out(self):
+        """Both kinds, by ID -- a count can match while the wrong row survives."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out, r = self._merge(tmp)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(feature_ids(out, "gene"), ["REF0001"])
+            self.assertEqual(feature_ids(out, "transposable_element_gene"),
+                             ["REFTE001"])
+
+    def test_our_transcript_attaches_to_the_subtype_gene(self):
+        """Not merely accepted: the added mRNA has to name the subtype gene as
+        its Parent, or the merge silently attached nothing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out, r = self._merge(tmp)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            added = []
+            with open(out) as fh:
+                for line in fh:
+                    if line.startswith("#"):
+                        continue
+                    c = line.rstrip("\n").split("\t")
+                    if len(c) > 8 and c[1] == "gene-miner" and c[2] == "mRNA":
+                        p = re.search(r"Parent=([^;,]+)", c[8])
+                        added.append((c[0], p.group(1) if p else None))
+            self.assertIn(("chr1", "REFTE001"), added)
+            self.assertIn(("chr1", "REF0001"), added)
+
+    def test_a_childless_top_level_record_is_not_a_gene(self):
+        """`region` spans the contig and parents nothing. Counting it would
+        inflate every gene count this script prints."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out, r = self._merge(tmp)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("no children -> not a gene record", r.stdout)
+            self.assertEqual(len(feature_ids(out, "region")), 1)
+            self.assertNotIn("duplicate IDs                 1", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
